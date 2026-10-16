@@ -10,7 +10,7 @@ from .models import VersionStat
 
 def open_stats(inventory, at):
     """Посчитать свод версии по её позициям и открыть строки с момента at."""
-    rows = (Item.objects.filter(inventory=inventory)
+    rows = (Item.objects.filter(inventory=inventory, excluded=False)  # меры (материалы, запасы) — не штуки
             .values("recommended_code", "status_id", "priority", "object_type_id")
             .annotate(n=Count("id"), q=Sum("qty"), ci=Sum("cost_initial"), cb=Sum("cost_balance")))
     VersionStat.objects.bulk_create([

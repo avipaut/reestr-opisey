@@ -196,12 +196,15 @@ def data_issues(parsed):
     swapped = [i for i in money if "заменена" in i["qty_note"]]
     unit = [i for i in items if UNIT_NAME.match(i.get("name") or "")]
     neg = [i for i in items if (i.get("qty") or "").startswith("-")]
+    measures = [i for i in items if i.get("excluded")]
     out = []
     if money:
         out.append(f"сумма в «Количестве» — {len(money)} стр. (из них переставлены количество и стоимость — "
                    f"{len(swapped)}), посчитаны за 1 шт.; строки: {_rows(money)}")
     if unit:
         out.append(f"вместо названия — единица измерения — {len(unit)} стр.: {_rows(unit)}")
+    if measures:
+        out.append(f"исключены из свода (меры: материалы, запасы) — {len(measures)} стр.: {_rows(measures)}")
     if neg:
         out.append(f"отрицательное количество — {len(neg)} стр.: {_rows(neg)}")
     return "; ".join(out)
@@ -308,7 +311,7 @@ def _stage(sf, p) -> Inventory:
         Item.objects.bulk_create(items, batch_size=2000)
         Reconciliation.objects.bulk_create([Reconciliation(inventory=inv, **r) for r in p["reconciliations"]])
         Rule.objects.bulk_create([Rule(inventory=inv, **r) for r in p["rules"]])
-        agg = Item.objects.filter(inventory=inv).aggregate(
+        agg = Item.objects.filter(inventory=inv, excluded=False).aggregate(
             q=Sum("qty"), ci=Sum("cost_initial"), cb=Sum("cost_balance"))
         inv.rows, inv.qty = len(items), agg["q"] or 0
         inv.cost_initial, inv.cost_balance = agg["ci"] or 0, agg["cb"] or 0

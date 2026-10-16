@@ -136,6 +136,10 @@ class Item(models.Model):
     account_code = models.CharField("код учёта", max_length=32, blank=True)
     qty = models.DecimalField("количество", max_digits=14, decimal_places=3, default=1)
     qty_note = models.CharField("количество — пометка", max_length=150, blank=True)
+    # Материалы и запасы (меры: литры, тонны, м²) в свод штук не входят — решение
+    # пользователя 16.10.2026 «Исключаем». Позиция хранится и видна в поиске.
+    excluded = models.BooleanField("исключено из свода", default=False)
+    exclude_reason = models.CharField("почему исключено", max_length=200, blank=True)
     inv_no = models.CharField("инв. номер", max_length=200, blank=True)
     inv_key = models.CharField("ключ позиции", max_length=200, blank=True, db_index=True)
     cost_initial = models.DecimalField("первонач. стоимость", **MONEY)

@@ -66,6 +66,7 @@ ITEM_COLUMNS = [
     ("Рекомендуемый код", lambda i: i.recommended_code), ("Статус", lambda i: str(i.status or "")),
     ("Статус по описи", lambda i: i.status_doc), ("Приоритет", lambda i: i.priority),
     ("Количество, шт.", lambda i: i.qty), ("Количество — пометка", lambda i: i.qty_note),
+    ("Исключено из свода", lambda i: i.exclude_reason),
     ("Первонач. стоимость, сом", lambda i: i.cost_initial),
     ("Накоп. износ, сом", lambda i: i.depreciation), ("Балансовая стоимость, сом", lambda i: i.cost_balance),
     ("Модель", lambda i: i.model), ("Тип объекта", lambda i: str(i.object_type or "")),

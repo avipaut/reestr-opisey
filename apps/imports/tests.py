@@ -112,6 +112,7 @@ class ReaderTests(TransactionTestCase):
         make_book(p, [swapped, equal, row("Кабель", "31122190", "Резерв", qty=12.5, inv="7")])
         items = parse_book(p)["items"]
         self.assertEqual([i["qty"] for i in items], ["1", "1", "12.50"])
+        self.assertEqual([i["excluded"] for i in items], [False, False, True], "мера (12,5) — не в свод")
         self.assertIn("19990", items[0]["qty_note"])
         # столбцы переставлены (стоимость 1) — стоимость восстановлена из «Количества»
         self.assertEqual((items[0]["cost_initial"], items[0]["cost_balance"]), ("19990.00", "19990.00"))
@@ -269,3 +270,12 @@ class AutoAcceptTests(TransactionTestCase):
         self.assertEqual(Node.objects.get(code="1", parent__code="106").name, "Достук")
         self.assertFalse(Node.objects.filter(name="обработанные").exists())
         self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 11)
+
+    def test_measures_excluded_from_stats(self):
+        """Материалы и запасы (меры) хранятся, но в свод штук не входят — «Исключаем»."""
+        make_book(os.path.join(self.root, "106", "опись.xlsx"),
+                  BASE + [row("Бензин", "31122190", "Резерв", qty=12.15, inv="b1", cost=600),
+                          row("т", "31122190", "Резерв", qty=3, inv="t1", cost=20000)])
+        services.scan([self.root], workers=1)
+        self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 5)
+        self.assertEqual(Item.objects.filter(excluded=True).count(), 2)

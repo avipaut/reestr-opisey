@@ -54,6 +54,7 @@ REQUIRED = ("name", "status_doc", "recommended_code")
 MONEY = {"cost_initial", "depreciation", "cost_balance", "saldo_begin_initial", "saldo_begin_dep",
          "saldo_begin_balance", "income_initial", "income_dep", "expense_initial", "expense_dep"}
 CODES = {"account_code", "recommended_code", "org_code"}
+UNIT_NAME = re.compile(r"^\s*(т|кг|г|л|м|м2|м3|кв\.?\s*м\.?|шт\.?|п\.?\s*м\.?)\s*$", re.I)
 QTY_MAX = Decimal(1000)  # больше — не количество штук, а сумма
 USER_MARK = "отметка пользователя"  # «Отметка пользователя (02.10.2026)» — дата в шапке
 
@@ -191,6 +192,13 @@ def _list_sheet(ws, out_items, unknown_cols):
                     it["cost_balance"] = q
                 it["cost_initial"] = q
                 it["qty_note"] += f"; стоимость {ci} заменена числом из «Количества»"
+        # Мера, а не штуки (материалы и запасы) — в свод не идёт: дробное количество
+        # при обычной стоимости или единица измерения вместо названия.
+        it["excluded"], it["exclude_reason"] = False, ""
+        if UNIT_NAME.match(it.get("name") or ""):
+            it["excluded"], it["exclude_reason"] = True, "вместо названия — единица измерения (мера)"
+        elif not it["qty_note"] and Decimal(it["qty"]) != Decimal(it["qty"]).to_integral_value():
+            it["excluded"], it["exclude_reason"] = True, "дробное количество — мера (материалы, запасы)"
         p = get("priority")
         it["priority"] = int(p) if isinstance(p, (int, float)) or text(p).isdigit() else None
         sr = get("source_row")
