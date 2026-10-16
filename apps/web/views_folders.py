@@ -26,10 +26,21 @@ EXTS = tuple(settings.INVENTORY_EXTENSIONS)
 
 
 def _start_scan(request, root):
-    """Обход в фоне (обработчик очереди); в разработке — сразу."""
+    """Обход в фоне: на сервере — обработчик очереди, в разработке — поток."""
     run = ScanRun.objects.create(roots=[root], stage="в очереди")
-    if settings.DEBUG or getattr(settings, "SCAN_SYNC", False):
+    if getattr(settings, "SCAN_SYNC", False):  # тесты
         imports.scan([root], run=run)
+    elif settings.DEBUG:  # разработка: фоновый поток того же процесса, без обработчика очереди
+        import threading
+        from django.db import connection
+
+        def work():
+            try:
+                imports.scan([root], run=run)
+            finally:
+                connection.close()
+
+        threading.Thread(target=work, daemon=True).start()
     else:
         from django_q.tasks import async_task
         async_task("apps.imports.tasks.scan_task", [root], run.pk)
