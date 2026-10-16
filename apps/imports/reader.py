@@ -184,6 +184,13 @@ def _list_sheet(ws, out_items, unknown_cols):
         if q is not None and q not in ("0.00", "1.00") and (
                 q in (ci, it.get("cost_balance")) or Decimal(q) > QTY_MAX or swapped):
             it["qty"], it["qty_note"] = "1", f"в количестве {q} — похоже на сумму, за 1 шт."
+            # Столбцы переставлены (стоимость ≤ 1): стоимость — из «Количества»
+            # (пользователь 16.10.2026: «Правь в базе»).
+            if ci is not None and Decimal(ci) <= 1 and Decimal(q) > 1:
+                if it.get("cost_balance") == ci:
+                    it["cost_balance"] = q
+                it["cost_initial"] = q
+                it["qty_note"] += f"; стоимость {ci} заменена числом из «Количества»"
         p = get("priority")
         it["priority"] = int(p) if isinstance(p, (int, float)) or text(p).isdigit() else None
         sr = get("source_row")

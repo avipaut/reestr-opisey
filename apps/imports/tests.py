@@ -113,6 +113,9 @@ class ReaderTests(TransactionTestCase):
         items = parse_book(p)["items"]
         self.assertEqual([i["qty"] for i in items], ["1", "1", "12.50"])
         self.assertIn("19990", items[0]["qty_note"])
+        # столбцы переставлены (стоимость 1) — стоимость восстановлена из «Количества»
+        self.assertEqual((items[0]["cost_initial"], items[0]["cost_balance"]), ("19990.00", "19990.00"))
+        self.assertEqual(items[1]["cost_initial"], "6824964.00", "у равной цене стоимость не трогается")
         self.assertEqual(items[2]["qty_note"], "")
 
     def test_broken_book_is_an_error_not_a_crash(self):
