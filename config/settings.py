@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.inventories",
     "apps.imports",
     "apps.stats",
+    "apps.web",
 ]
 
 MIDDLEWARE = [
@@ -75,6 +76,7 @@ TEMPLATES = [{
         "django.template.context_processors.request",
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
+        "apps.web.context.nav",
     ]},
 }]
 
@@ -109,6 +111,10 @@ LANGUAGE_CODE = "ru"
 TIME_ZONE = "Asia/Bishkek"  # сутки и даты — по местному поясу (граф APCS: debt-daily-view-reads-raw)
 USE_I18N = True
 USE_TZ = True
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "review_list"
+LOGOUT_REDIRECT_URL = "login"
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

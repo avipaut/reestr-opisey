@@ -1,0 +1,50 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}На просмотр — Реестр описей{% endblock %}
+{% block content %}
+<h1>Описи на просмотр</h1>
+<p class="sub">Новые и изменённые описи из сетевой папки. Принятая опись становится актуальной версией узла, прежняя уходит в историю.</p>
+
+<div class="filters">
+  <div class="muted">
+    {% if last_run %}Последний обход: {{ last_run.started_at|date:"d.m.Y H:i" }} —
+      <span class="tag {% if last_run.state == 'done' %}ok{% elif last_run.state == 'running' %}{% else %}bad{% endif %}">{{ last_run.get_state_display }}</span>,
+      файлов {{ last_run.found|num }}, без изменений {{ last_run.unchanged|num }}, новых на просмотр {{ last_run.pending|num }}{% if last_run.errors %}, ошибок {{ last_run.errors|num }}{% endif %}
+    {% else %}Обходов ещё не было.{% endif %}
+  </div>
+  <form method="post" action="{% url 'scan_now' %}">{% csrf_token %}<button class="btn" type="submit">Проверить сейчас</button></form>
+</div>
+
+<div class="card">
+  {% if pending %}
+  <div class="tbl-wrap">
+    <table class="data">
+      <thead><tr><th>Файл</th><th>Узел</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th>Разобрана</th></tr></thead>
+      <tbody>
+      {% for inv in pending %}
+        <tr>
+          <td class="wrap"><a href="{% url 'review_detail' inv.pk %}">{{ inv.source_file.name }}</a><div class="muted">{{ inv.source_file.rel_folder }}</div></td>
+          <td>{% if inv.node %}{{ inv.node.trail }}{% elif inv.node_resolved %}<span class="tag">будет создан</span> {% for p in inv.proposed_path %}{{ p.code }}{% if p.name %}. {{ p.name }}{% endif %}{% if not forloop.last %} › {% endif %}{% endfor %}{% else %}<span class="tag warn">укажите узел</span>{% endif %}</td>
+          <td class="n">{{ inv.rows|num }}</td>
+          <td class="n">{{ inv.qty|num }}</td>
+          <td class="n">{{ inv.cost_initial|num:2 }}</td>
+          <td class="muted nw">{{ inv.parsed_at|date:"d.m.Y H:i" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><b>Новых описей нет</b>Обход проверяет папку по расписанию; «Проверить сейчас» — без ожидания.</div>
+  {% endif %}
+</div>
+
+{% if errors %}
+<div class="card">
+  <h2>Не разобраны</h2>
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Файл</th><th>Причина</th><th>Когда</th></tr></thead>
+    <tbody>{% for e in errors %}<tr><td class="wrap">{{ e.source_file.name }}<div class="muted">{{ e.source_file.rel_folder }}</div></td><td class="wrap">{{ e.error }}</td><td class="muted nw">{{ e.parsed_at|date:"d.m.Y H:i" }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

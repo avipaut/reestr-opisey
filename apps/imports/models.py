@@ -34,3 +34,7 @@ class ScanRun(models.Model):
 
     def __str__(self):
         return f"{self.started_at:%d.%m.%Y %H:%M} — {self.get_state_display()}"
+
+    @property
+    def duration(self):
+        return (self.finished_at - self.started_at).total_seconds() if self.finished_at else None

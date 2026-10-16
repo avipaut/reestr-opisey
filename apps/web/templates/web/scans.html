@@ -1,0 +1,20 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Журнал обходов — Реестр описей{% endblock %}
+{% block content %}
+<h1>Журнал обходов</h1>
+<p class="sub">Каждый обход сетевой папки: что найдено и чем закончилось.</p>
+<div class="card">
+  {% if runs %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Начало</th><th>Итог</th><th class="n">Файлов</th><th class="n">Без изменений</th><th class="n">То же содержимое</th><th class="n">Разобрано</th><th class="n">На просмотр</th><th class="n">Как актуальная</th><th class="n">Ошибок</th><th class="n">Пропало</th><th class="n">Длилось, с</th><th>Журнал</th></tr></thead>
+    <tbody>{% for r in runs %}<tr>
+      <td class="nw">{{ r.started_at|date:"d.m.Y H:i:s" }}</td>
+      <td><span class="tag {% if r.state == 'done' %}ok{% elif r.state == 'running' %}{% elif r.state == 'busy' %}warn{% else %}bad{% endif %}">{{ r.get_state_display }}</span></td>
+      <td class="n">{{ r.found|num }}</td><td class="n">{{ r.unchanged|num }}</td><td class="n">{{ r.moved|num }}</td><td class="n">{{ r.parsed|num }}</td>
+      <td class="n">{{ r.pending|num }}</td><td class="n">{{ r.same_content|num }}</td><td class="n {% if r.errors %}minus{% endif %}">{{ r.errors|num }}</td><td class="n">{{ r.missing|num }}</td>
+      <td class="n">{% if r.finished_at %}{{ r.duration|num:1 }}{% endif %}</td>
+      <td class="wrap muted">{{ r.log|linebreaksbr }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty"><b>Обходов ещё не было</b>Обход запускается по расписанию или кнопкой «Проверить сейчас».</div>{% endif %}
+</div>
+{% endblock %}

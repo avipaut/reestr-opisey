@@ -45,6 +45,15 @@ class Node(models.Model):
             return f"{self.code}. {self.name}"
         return self.code or self.name or f"узел {self.pk}"
 
+    @property
+    def trail(self):
+        """«126 › 8. Ошское ДНВТ» — цепочка от учреждения."""
+        parts, n = [], self
+        while n is not None:
+            parts.append(n.label)
+            n = n.parent
+        return " › ".join(reversed(parts))
+
     def save(self, *args, **kwargs):
         part = self.code or f"#{self.pk or 'new'}"
         if self.parent_id:

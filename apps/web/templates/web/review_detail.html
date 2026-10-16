@@ -1,0 +1,73 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}{{ inv.source_file.name }} — Реестр описей{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'review_list' %}">На просмотр</a><span class="sep">/</span><span>{{ inv.source_file.name }}</span></div>
+<h1>{{ inv.source_file.name }}</h1>
+<p class="sub">{{ inv.source_file.rel_folder }} · <span class="tag {% if inv.state == 'accepted' %}ok{% elif inv.state == 'pending' %}{% else %}bad{% endif %}">{{ inv.get_state_display }}</span>{% if inv.check_flag %} · <span class="tag warn">в имени «ПРОВЕРИТЬ»</span>{% endif %}</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ inv.rows|num }}</div>
+    {% if totals_before %}<div class="d muted">было {{ totals_before.0|num }}</div>{% else %}<div class="d muted">первая версия узла</div>{% endif %}</div>
+  <div class="tile"><div class="k">Количество</div><div class="v">{{ inv.qty|num }}</div>{% if totals_before %}<div class="d muted">было {{ totals_before.1|num }}</div>{% endif %}</div>
+  <div class="tile"><div class="k">Первонач. стоимость</div><div class="v">{{ inv.cost_initial|num:2 }}</div>{% if totals_before %}<div class="d muted">было {{ totals_before.2|num:2 }}</div>{% endif %}</div>
+  {% if cmp and current %}<div class="tile"><div class="k">Изменения к актуальной</div><div class="v"><span class="plus">+{{ cmp.added|length }}</span> · <span class="minus">−{{ cmp.removed|length }}</span> · {{ cmp.changed|length }}</div><div class="d muted">добавлено · убрано · изменено</div></div>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Опись</h2>
+  <dl class="kv pad">
+    <dt>Узел</dt>
+    <dd>{% if inv.node %}{{ inv.node.trail }}{% if current %} · актуальная версия от {{ current.valid_from|date:"d.m.Y H:i" }}{% else %} · описей у узла ещё нет{% endif %}
+        {% elif inv.node_resolved %}<span class="tag">будет создан при приёме</span> {% for p in inv.proposed_path %}{{ p.code }}{% if p.name %}. {{ p.name }}{% endif %}{% if not forloop.last %} › {% endif %}{% endfor %}
+        {% else %}<span class="tag warn">укажите узел</span> — по имени папки узел не определяется; выбор запомнится для этой папки{% endif %}</dd>
+    <dt>Организация в описи</dt><dd>{{ inv.org_text|default:"—" }}</dd>
+    <dt>Источник</dt><dd>{{ inv.source_name|default:"—" }}{% if inv.source_sheet %} / {{ inv.source_sheet }}{% endif %}{% if inv.source_kind %} · {{ inv.source_kind }}{% endif %}</dd>
+    <dt>Дата источника</dt><dd>{{ inv.source_date|date:"d.m.Y"|default:"—" }}</dd>
+    <dt>Стоимости</dt><dd>{{ inv.cost_basis|default:"—" }}</dd>
+    {% if inv.error %}<dt>Ошибка</dt><dd class="minus">{{ inv.error }}</dd>{% endif %}
+    {% if inv.unknown_columns %}<dt>Столбцы вне схемы</dt><dd>{{ inv.unknown_columns|join:", " }} — сохранены при позициях</dd>{% endif %}
+  </dl>
+</div>
+
+{% if cmp %}
+<div class="card">
+  <h2>Свод по кодам{% if current %}: было и стало{% endif %}</h2>
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Код учёта</th><th>Статус</th>{% if current %}<th class="n">Было</th>{% endif %}<th class="n">Стало</th>{% if current %}<th class="n">Разница</th>{% endif %}</tr></thead>
+    <tbody>{% for t in cmp.table %}<tr><td>{{ t.code|default:"—" }}</td><td>{{ t.status }}</td>{% if current %}<td class="n">{{ t.before|num }}</td>{% endif %}<td class="n">{{ t.after|num }}</td>{% if current %}<td class="n {% if t.delta > 0 %}plus{% elif t.delta < 0 %}minus{% else %}muted{% endif %}">{{ t.delta|signed }}</td>{% endif %}</tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+{% if current %}
+<div class="card"><details class="list"><summary>Добавлено <span class="muted">{{ cmp.added|length|num }}</span></summary>
+  {% if cmp.added %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Инв. №</th><th>Наименование</th><th>Код</th><th>Статус</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th></tr></thead>
+  <tbody>{% for r in cmp.added|slice:":500" %}<tr><td>{{ r.inv_no }}</td><td class="wrap">{{ r.name }}</td><td>{{ r.recommended_code }}</td><td>{{ r.status__name }}</td><td class="n">{{ r.qty|num }}</td><td class="n">{{ r.cost_initial|num:2 }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">Нет</div>{% endif %}
+</details></div>
+<div class="card"><details class="list"><summary>Убрано <span class="muted">{{ cmp.removed|length|num }}</span></summary>
+  {% if cmp.removed %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Инв. №</th><th>Наименование</th><th>Код</th><th>Статус</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th></tr></thead>
+  <tbody>{% for r in cmp.removed|slice:":500" %}<tr><td>{{ r.inv_no }}</td><td class="wrap">{{ r.name }}</td><td>{{ r.recommended_code }}</td><td>{{ r.status__name }}</td><td class="n">{{ r.qty|num }}</td><td class="n">{{ r.cost_initial|num:2 }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">Нет</div>{% endif %}
+</details></div>
+<div class="card"><details class="list"><summary>Изменено <span class="muted">{{ cmp.changed|length|num }}</span></summary>
+  {% if cmp.changed %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Инв. №</th><th>Наименование</th><th>Что изменилось</th></tr></thead>
+  <tbody>{% for c in cmp.changed|slice:":500" %}<tr><td>{{ c.new.inv_no }}</td><td class="wrap">{{ c.new.name }}</td><td class="wrap">{% for f, a, b in c.diffs %}{{ f|field_label }}: {{ a|default:"—" }} → <b>{{ b|default:"—" }}</b>{% if not forloop.last %}; {% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">Нет</div>{% endif %}
+</details></div>
+{% endif %}
+{% endif %}
+
+{% if reconciliations %}
+<div class="card"><details class="list"><summary>Сверка с итогами источника <span class="muted">{{ reconciliations|length }}</span></summary>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>Счёт</th><th class="n">Итог источника: первонач.</th><th class="n">Сумма позиций: первонач.</th><th class="n">Итог источника: износ</th><th class="n">Сумма позиций: износ</th><th>Совпадает</th></tr></thead>
+  <tbody>{% for r in reconciliations %}<tr><td>{{ r.account }}</td><td class="n">{{ r.src_initial|num:2 }}</td><td class="n">{{ r.sum_initial|num:2 }}</td><td class="n">{{ r.src_dep|num:2 }}</td><td class="n">{{ r.sum_dep|num:2 }}</td><td class="wrap">{{ r.matches }}</td></tr>{% endfor %}</tbody></table></div>
+</details></div>
+{% endif %}
+
+{% if inv.state == 'pending' and perms.inventories.change_inventory %}
+<form class="actionbar" method="post" action="{% url 'review_decide' inv.pk %}">{% csrf_token %}
+  {% if not inv.node_resolved %}
+  <label class="grow">Узел <select name="node" required><option value="">— выберите узел —</option>{% for n in nodes %}<option value="{{ n.pk }}">{{ n.path }} {{ n.name }}</option>{% endfor %}</select></label>
+  {% else %}<div class="grow muted">{% if current %}Прежняя версия уйдёт в историю.{% else %}Первая версия узла.{% endif %} Статусы — из этой описи.</div>{% endif %}
+  <button class="btn primary" type="submit" name="action" value="accept">Принять</button>
+  <details><summary class="btn danger">Отклонить…</summary><span class="muted">Позиции будут удалены, файл не предложится снова.</span><button class="btn danger" type="submit" name="action" value="reject" formnovalidate>Отклонить</button></details>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Свод по кодам — Реестр описей{% endblock %}
+{% block content %}
+<h1>Свод по кодам учёта</h1>
+<p class="sub">Количество позиций актуальных описей (с учётом столбца «Количество») по рекомендуемому коду и статусу.</p>
+
+<form class="filters" method="get">
+  <label>На дату<input type="date" name="date" value="{{ date }}"></label>
+  <label>Учреждение
+    <select name="node" onchange="this.form.submit()">
+      <option value="">Все учреждения</option>
+      {% if node %}{% for c in crumbs %}<option value="{{ c.pk }}" {% if c.pk == node.pk %}selected{% endif %}>{{ c.path }} {{ c.name }}</option>{% endfor %}{% endif %}
+      {% for r in roots %}{% if not node or r.pk != crumbs.0.pk %}<option value="{{ r.pk }}">{{ r.path }} {{ r.name }}</option>{% endif %}{% endfor %}
+      {% for c in children %}<option value="{{ c.pk }}">↳ {{ c.path }} {{ c.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="btn" type="submit">Показать</button>
+  <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
+</form>
+<p class="asof">Показано на {{ asof|date:"d.m.Y H:i" }}{% if not date %} — сейчас{% endif %}</p>
+
+{% if crumbs %}<div class="crumbs"><a href="?date={{ date }}">Все учреждения</a>{% for c in crumbs %}<span class="sep">›</span><a href="?node={{ c.pk }}&date={{ date }}">{{ c.label }}</a>{% endfor %}</div>{% endif %}
+
+<div class="card">
+  {% if table %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Код учёта</th>{% for s in statuses %}<th class="n">{{ s }}</th>{% endfor %}<th class="n">Итого</th></tr></thead>
+    <tbody>{% for t in table %}<tr><td>{{ t.code }}</td>{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td>Итого</td>{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
+  </table></div>
+  {% else %}
+  <div class="empty"><b>На эту дату принятых описей нет</b>Описи появляются здесь после приёма на экране «На просмотр».</div>
+  {% endif %}
+</div>
+{% endblock %}
