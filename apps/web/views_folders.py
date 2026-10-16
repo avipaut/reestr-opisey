@@ -106,3 +106,30 @@ def import_folder(request):
     run = _start_scan(request, path)
     messages.info(request, f"Обход папки {path} начат — ход ниже; найденные описи появятся «На просмотр».")
     return redirect("scan_detail", pk=run.pk)
+
+
+@login_required
+@permission_required("inventories.add_inventory", raise_exception=True)
+@require_POST
+def scan_stop(request):
+    n = ScanRun.objects.filter(finished_at__isnull=True).update(cancel=True)
+    messages.info(request, "Обход останавливается — дочитывается текущая книга" if n else "Идущих обходов нет")
+    pk = request.POST.get("run")
+    return redirect("scan_detail", pk=int(pk)) if pk and pk.isdigit() else redirect("import_page")
+
+
+@login_required
+@require_POST
+def wipe(request):
+    """«Очистить базу» — только администратор и только со словом ОЧИСТИТЬ."""
+    if not request.user.is_superuser:
+        messages.error(request, "Очистить базу может только администратор")
+        return redirect("import_page")
+    if (request.POST.get("confirm") or "").strip().upper() != "ОЧИСТИТЬ":
+        messages.error(request, "Не очищено: впишите слово ОЧИСТИТЬ")
+        return redirect("import_page")
+    stopped = imports.wipe_all()
+    messages.success(request, "База очищена: описи, позиции, учреждения, обходы и журналы удалены"
+                     + ("" if stopped else " (обход не успел остановиться — проверьте журнал обходов)"))
+    return redirect("import_page")
+

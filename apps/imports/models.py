@@ -12,6 +12,7 @@ class ScanRun(models.Model):
         DONE_ERRORS = "done_errors", "готово с ошибками"
         FAILED = "failed", "прервано ошибкой"
         BUSY = "busy", "пропущено: идёт другой обход"
+        CANCELLED = "cancelled", "остановлен"
 
     state = models.CharField("состояние", max_length=16, choices=State.choices, default=State.RUNNING)
     roots = models.JSONField("папки", default=list)
@@ -30,6 +31,7 @@ class ScanRun(models.Model):
     errors = models.IntegerField("ошибок", default=0)
     missing = models.IntegerField("пропали из папки", default=0)
     log = models.TextField("журнал", blank=True)
+    cancel = models.BooleanField("остановить", default=False)  # кнопки «Остановить обход», «Очистить базу»
     # Ход обхода — для экрана, пока обход идёт (обновляется раз в несколько файлов).
     stage = models.CharField("этап", max_length=40, blank=True)
     to_parse = models.IntegerField("к разбору", default=0)

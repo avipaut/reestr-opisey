@@ -8,6 +8,7 @@
 <div class="card pad" id="sc" data-run="{{ run.pk }}" data-finished="{% if run.finished_at %}1{% endif %}">
   <p><b id="sc-stage">{% if run.finished_at %}{{ run.get_state_display }}{% else %}{{ run.stage|default:"в очереди" }}{% endif %}</b>
      <span class="muted" id="sc-current">{% if not run.finished_at %}{{ run.current }}{% endif %}</span></p>
+  {% if not run.finished_at and perms.inventories.add_inventory %}<form method="post" action="{% url 'scan_stop' %}" id="sc-stop">{% csrf_token %}<input type="hidden" name="run" value="{{ run.pk }}"><button class="btn danger" type="submit">Остановить обход</button></form>{% endif %}
   <div class="upbar" id="sc-bar" {% if run.finished_at or not run.to_parse %}hidden{% endif %}><div style="width: {% widthratio run.parsed run.to_parse 100 %}%"></div></div>
   <div class="legend" role="group" aria-label="Итоги по файлам — щелчок оставляет в дереве только этот вид">
     <button type="button" class="lg on" data-st="">все файлы</button>

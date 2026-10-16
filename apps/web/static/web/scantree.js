@@ -71,6 +71,7 @@
       bar.firstElementChild.style.width = (p.to_parse ? Math.round(p.parsed / p.to_parse * 100) : 0) + "%";
       if (p.finished) {
         document.getElementById("sc-title").textContent = "Обход закончен";
+        const st = document.getElementById("sc-stop"); if (st) st.remove();
         if (!finished) { finished = true; load(tree); setTimeout(() => location.reload(), 800); }
         return;
       }

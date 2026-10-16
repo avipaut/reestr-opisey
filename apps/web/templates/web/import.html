@@ -4,7 +4,8 @@
 <h1>Импорт описей</h1>
 <p class="sub">Выберите папку — приложение прочитает описи в ней и во всех подпапках на месте, файлы к себе не копирует. Подпапки первого уровня — учреждения («126»), ниже — подведы («8. Ошское ДНВТ»). Читаются только книги в папках «обработанные» (результат модуля нормализации); исходные книги рядом не открываются. Уже загруженные (тот же файл или те же строки) пропускаются.</p>
 
-{% if running %}<ul class="msgs"><li>Идёт обход: {{ running.roots|join:", " }} — <a href="{% url 'scan_detail' running.pk %}">ход обхода</a></li></ul>{% endif %}
+{% if running %}<div class="card pad runbar"><span>Идёт обход: {{ running.roots|join:", " }} — <a href="{% url 'scan_detail' running.pk %}">ход обхода</a></span>
+  {% if perms.inventories.add_inventory %}<form method="post" action="{% url 'scan_stop' %}">{% csrf_token %}<button class="btn danger" type="submit">Остановить обход</button></form>{% endif %}</div>{% endif %}
 
 {% if perms.inventories.add_inventory %}
 <div class="card"><h2>Папка на сервере или в сети</h2>
@@ -32,5 +33,14 @@
     <td class="n">{{ r.found|num }}</td><td class="n">{{ r.pending|num }}</td><td class="n {% if r.errors %}minus{% endif %}">{{ r.errors|num }}</td></tr>{% endfor %}</tbody></table></div>
   {% else %}<div class="empty">Обходов ещё не было.</div>{% endif %}
 </div>
+{% if user.is_superuser %}
+<div class="card danger-zone"><h2>Очистить базу</h2>
+  <form class="pad filters" method="post" action="{% url 'wipe' %}">{% csrf_token %}
+    <p class="muted wide-p">Удаляются все описи, позиции, учреждения, обходы и журналы обходов; идущий обход сначала останавливается. Остаются учётные записи, статусы и группы кодов. Файлы описей на диске не трогаются.</p>
+    <label>Впишите слово ОЧИСТИТЬ<input type="text" name="confirm" autocomplete="off" required pattern="[Оо][Чч][Ии][Сс][Тт][Ии][Тт][Ьь]"></label>
+    <button class="btn danger" type="submit">Очистить базу</button>
+  </form>
+</div>
+{% endif %}
 <script src="{% static 'web/import.js' %}" defer></script>
 {% endblock %}

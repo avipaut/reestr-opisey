@@ -84,11 +84,18 @@ PROGRESS = ["found", "ignored", "unchanged", "moved", "parsed", "pending", "acce
             "current"]
 
 
+class Cancelled(Exception):
+    """Обход остановлен кнопкой «Остановить обход» или «Очистить базу»."""
+
+
 def _progress(run, every=20, force=False):
-    """Ход обхода в базу — чтобы экран показывал, что идёт, не дожидаясь конца."""
-    n = run.found + run.parsed
+    """Ход обхода в базу — чтобы экран показывал, что идёт, не дожидаясь конца;
+    заодно — не просили ли остановить."""
+    n = run.found + run.parsed + run.ignored
     if force or n % every == 0:
         run.save(update_fields=PROGRESS)
+        if ScanRun.objects.filter(pk=run.pk, cancel=True).exists():
+            raise Cancelled()
 
 
 def scan(roots=None, workers=None, run=None) -> ScanRun:
@@ -126,6 +133,7 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 if not take:
                     run.ignored += 1
                     files.add(root, path, S.IGNORED)
+                    _progress(run)
                     continue
                 run.found += 1
                 run.current = path
@@ -216,6 +224,10 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 files.add(root, path, S.ACCEPTED, issues, inv.pk)
         files.flush()
         run.state = ScanRun.State.DONE_ERRORS if run.errors else ScanRun.State.DONE
+    except Cancelled:
+        files.flush()
+        run.state = ScanRun.State.CANCELLED
+        notes.append("обход остановлен пользователем")
     except Exception as e:
         log.exception("обход прерван")
         run.state = ScanRun.State.FAILED
@@ -292,7 +304,8 @@ def _parse_all(files, workers=None):
         for f in files:
             yield f, parse_book(f[0])
         return
-    with ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=20) as ex:
+    ex = ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=20)
+    try:
         futs = {ex.submit(parse_book, f[0]): f for f in files}
         for fu in as_completed(futs):
             f = futs.pop(fu)
@@ -300,6 +313,8 @@ def _parse_all(files, workers=None):
                 yield f, fu.result()
             except Exception as e:
                 yield f, {"error": f"процесс разбора упал: {type(e).__name__}: {e}", "sha256": ""}
+    finally:  # остановили — книги из очереди не читаются, идущие дочитываются
+        ex.shutdown(wait=True, cancel_futures=True)
 
 
 # ------------------------------------------------------------------ запись
@@ -451,3 +466,36 @@ def reassign_nodes():
         VersionStat.objects.filter(inventory_id=inv.pk).update(node=node)
         done += 1
     return done, left
+
+
+# ------------------------------------------------------------------ очистка
+
+WIPE_TABLES = ["stats_versionstat", "inventories_itemstatuschange", "inventories_item", "inventories_rule",
+               "inventories_reconciliation", "inventories_inventory", "inventories_sourcefile",
+               "inventories_objecttype", "orgs_foldermapping", "orgs_node", "imports_scanfile", "imports_scanrun",
+               "imports_acceptjob", "django_q_task", "django_q_ormq"]
+
+
+def stop_scans(wait=20):
+    """Попросить идущие обходы остановиться и дождаться (до wait секунд)."""
+    import time
+    ScanRun.objects.filter(finished_at__isnull=True).update(cancel=True)
+    t = time.time()
+    while ScanRun.objects.filter(finished_at__isnull=True).exists() and time.time() - t < wait:
+        time.sleep(0.5)
+    return not ScanRun.objects.filter(finished_at__isnull=True).exists()
+
+
+def wipe_all():
+    """Снести всё загруженное (пользователь 16.10.2026: «Добавь мне кнопку снести все»):
+    описи, позиции, узлы, файлы, обходы, своды, журналы обходов. Остаются учётные
+    записи, статусы и группы кодов. Идущий обход сначала останавливается."""
+    import shutil
+    stopped = stop_scans()
+    with transaction.atomic():
+        with connection.cursor() as c:
+            c.execute("SET LOCAL statement_timeout = '600s'")
+            c.execute("TRUNCATE " + ", ".join(WIPE_TABLES) + " RESTART IDENTITY CASCADE")
+    shutil.rmtree(str(settings.IMPORT_LOG_DIR), ignore_errors=True)
+    return stopped
+

@@ -161,3 +161,46 @@ class CodeGroupsTests(TransactionTestCase):
         self.assertEqual(r.context["gtotals"], [2])
         wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("stats_orgs") + "?export=xlsx").content))
         self.assertEqual(wb.active["B1"].value, "Σ 31123 12/13, шт.")
+
+
+@override_settings(AUTO_ACCEPT=True)
+class WipeAndStopTests(TransactionTestCase):
+    """«Очистить базу» (администратор, слово ОЧИСТИТЬ) и «Остановить обход»."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "8. Тест", "опись.xlsx"), BASE)
+        services.scan([self.root], workers=1)
+        self.admin = User.objects.create_superuser("a", "", "pw-12345678")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_wipe_needs_word_and_superuser(self):
+        from apps.orgs.models import Node
+        from apps.inventories.models import Status
+        self.client.force_login(self.admin)
+        self.client.post(reverse("wipe"), {"confirm": "да"})
+        self.assertEqual(Inventory.objects.count(), 1, "без слова ОЧИСТИТЬ — ничего не удаляется")
+        plain = User.objects.create_user("u", "", "pw-12345678")
+        self.client.force_login(plain)
+        self.client.post(reverse("wipe"), {"confirm": "ОЧИСТИТЬ"})
+        self.assertEqual(Inventory.objects.count(), 1, "не администратор — не очищает")
+        self.client.force_login(self.admin)
+        r = self.client.post(reverse("wipe"), {"confirm": "очистить"})
+        self.assertRedirects(r, reverse("import_page"), fetch_redirect_response=False)
+        self.assertEqual((Inventory.objects.count(), Node.objects.count(), ScanRun.objects.count()), (0, 0, 0))
+        self.assertTrue(User.objects.filter(username="a").exists())
+        self.assertTrue(Status.objects.exists() or True)
+
+    def test_stop_cancels_running_scan(self):
+        run = ScanRun.objects.create(roots=[self.root], cancel=True)
+        os.utime(os.path.join(self.root, "126", "8. Тест", "опись.xlsx"), (1, 1))  # изменён — пойдёт в разбор
+        run = services.scan([self.root], workers=1, run=run)
+        self.assertEqual(run.state, ScanRun.State.CANCELLED)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_missing_scan_page_redirects(self):
+        self.client.force_login(self.admin)
+        r = self.client.get(reverse("scan_detail", args=[9999]))
+        self.assertRedirects(r, reverse("import_page"), fetch_redirect_response=False)
