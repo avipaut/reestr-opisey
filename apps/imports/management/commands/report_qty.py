@@ -4,9 +4,10 @@
 
     manage.py report_qty [файл.xlsx]
 
-Листы: «По книгам» — полный путь и число строк каждого вида; «Исправлено» —
-строки, посчитанные реестром за 1 шт. (исходное число — из пометки);
-«Сомнительные» — не исправлены, решает человек: стоимость ≤ 1 при количестве
+По умолчанию — только битые строки (пользователь: «Можешь только по битым
+данным?»): «По книгам» — полный путь и число строк каждого вида; «Битые
+строки» — посчитанные реестром за 1 шт. (исходное число — из пометки).
+С --with-doubtful — ещё «Сомнительные» (не исправлены, решает человек): стоимость ≤ 1 при количестве
 от 2 до 1000 (переставленные столбцы или настоящее количество) и дробное
 количество. Только актуальные описи. Файлы описей не открываются — всё из базы.
 """
@@ -56,9 +57,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("out", nargs="?",
-                            default=str(settings.BASE_DIR / ".dev" / "Количество-суммы — книги и строки.xlsx"))
+                            default=str(settings.BASE_DIR / ".dev" / "Битые количества — книги и строки.xlsx"))
+        parser.add_argument("--with-doubtful", action="store_true",
+                            help="добавить лист «Сомнительные» (по умолчанию — только битые строки)")
 
-    def handle(self, out, **_):
+    def handle(self, out, with_doubtful=False, **_):
         cur = Item.objects.filter(inventory__is_current=True).select_related("inventory__source_file", "status")
         by_file = defaultdict(lambda: defaultdict(int))
         fixed, doubt = [], []
@@ -69,7 +72,7 @@ class Command(BaseCommand):
             fixed.append(_row(it, q, k))
             by_file[it.inventory.source_file.path][k] += 1
         plain = cur.filter(qty_note="")
-        for k, qs in ((DOUBT[0], plain.filter(cost_initial__lte=1, qty__gt=1, qty__lte=1000)),
+        for k, qs in () if not with_doubtful else ((DOUBT[0], plain.filter(cost_initial__lte=1, qty__gt=1, qty__lte=1000)),
                       (DOUBT[1], plain.annotate(f=Floor("qty")).exclude(qty=F("f")))):
             for it in qs.order_by("inventory__source_file__path", "sheet", "row_no").iterator(chunk_size=2000):
                 doubt.append(_row(it, it.qty, k))
@@ -78,13 +81,14 @@ class Command(BaseCommand):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "По книгам"
-        ws.append(["Путь к книге", "Исправлено, строк", *KINDS, "Сомнительных, строк", *DOUBT])
+        extra = ["Сомнительных, строк", *DOUBT] if with_doubtful else []
+        ws.append(["Путь к книге", "Битых строк", *KINDS, *extra])
         for path, d in sorted(by_file.items(), key=lambda x: -sum(x[1].values())):
             ws.append([path, sum(d[k] for k in KINDS), *[d[k] for k in KINDS],
-                       sum(d[k] for k in DOUBT), *[d[k] for k in DOUBT]])
+                       *([sum(d[k] for k in DOUBT), *[d[k] for k in DOUBT]] if with_doubtful else [])])
         head = ["Путь к книге", "Лист", "Строка", "Инв. номер", "Основное средство", "Количество в книге",
                 "Первонач. стоимость, сом", "Балансовая стоимость, сом", "Рекомендуемый код", "Статус", "Вид"]
-        for title, rows in (("Исправлено", fixed), ("Сомнительные", doubt)):
+        for title, rows in (("Битые строки", fixed), *((("Сомнительные", doubt),) if with_doubtful else ())):
             w = wb.create_sheet(title)
             w.append(head)
             for r in rows:
@@ -92,9 +96,9 @@ class Command(BaseCommand):
         p = wb.create_sheet("Пояснение")
         for line in [
             ("Что это", "Строки нормализованных описей, где в столбце «Количество» не штуки."),
-            ("Исправлено", "Реестр считает такую позицию за 1 шт.; «Количество в книге» — число как в файле."),
-            ("Сомнительные", "Не исправлены: стоимость ≤ 1 при количестве 2–1000 (переставленные столбцы или "
-                             "настоящее количество) и дробное количество (метры, килограммы?)."),
+            ("Битые строки", "В «Количестве» — сумма: переставлены количество и стоимость (стоимость ≤ 1), "
+                             "количество равно стоимости, стоимость × 100 или больше 1000. Реестр считает такую "
+                             "позицию за 1 шт.; «Количество в книге» — число как в файле."),
             ("Источник", "База реестра, актуальные описи; строка и лист — как в книге."),
         ]:
             p.append(list(line))
@@ -106,7 +110,7 @@ class Command(BaseCommand):
                 w.freeze_panes = "B2"
                 w.auto_filter.ref = w.dimensions
             w.column_dimensions["A"].width = 100
-        for w in (wb["Исправлено"], wb["Сомнительные"]):
+        for w in [x for x in wb.worksheets if x.title in ("Битые строки", "Сомнительные")]:
             w.column_dimensions["E"].width = 45
             for col in "BCDFGHIJ":
                 w.column_dimensions[col].width = 15
@@ -116,4 +120,5 @@ class Command(BaseCommand):
         wb["Пояснение"].column_dimensions["B"].width = 100
         os.makedirs(os.path.dirname(out), exist_ok=True)
         wb.save(out)
-        self.stdout.write(f"книг: {len(by_file)}; исправлено строк: {len(fixed)}; сомнительных: {len(doubt)}\n{out}")
+        self.stdout.write(f"книг: {len(by_file)}; битых строк: {len(fixed)}"
+                          + (f"; сомнительных: {len(doubt)}" if with_doubtful else "") + f"\n{out}")
