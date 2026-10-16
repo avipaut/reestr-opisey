@@ -28,7 +28,7 @@ from apps.orgs.services import ensure_path
 from apps.stats import services as stats
 from apps.stats.models import VersionStat
 
-from .models import ScanRun
+from .models import ScanFile, ScanRun
 from .reader import parse_book
 
 log = logging.getLogger(__name__)
@@ -40,17 +40,47 @@ ITEM_FIELDS = [f.name for f in Item._meta.fields
 
 # ------------------------------------------------------------------ обход
 
+def _in_processed(path):
+    """Книга лежит в папке результата нормализации («обработанные») — где угодно в пути."""
+    wanted = {w.strip().lower() for w in settings.PROCESSED_FOLDERS}
+    if not wanted:
+        return True
+    return any(part.strip().lower() in wanted for part in os.path.normpath(path).split(os.sep))
+
+
 def _walk(root, exts):
+    """(путь, читать ли): вне «обработанных» книга не открывается — только имя в дерево обхода."""
     for cur, dirs, files in os.walk(root, onerror=lambda e: log.warning("нет доступа: %s", e)):
         dirs.sort(key=str.lower)
+        take = _in_processed(cur)
         for name in sorted(files, key=str.lower):
             if name.startswith("~$"):
                 continue  # временный файл открытой книги
             if os.path.splitext(name)[1].lower() in exts:
-                yield os.path.join(cur, name)
+                yield os.path.join(cur, name), take
 
 
-PROGRESS = ["found", "unchanged", "moved", "parsed", "pending", "accepted", "same_content", "errors", "stage", "to_parse",
+class _Files:
+    """Итоги по файлам обхода — в базу пачками (дерево файлов на странице обхода)."""
+
+    def __init__(self, run):
+        self.run, self.buf = run, []
+
+    def add(self, root, path, status, note="", inventory_id=None):
+        rel = os.path.relpath(os.path.dirname(path), root)
+        self.buf.append(ScanFile(run=self.run, root=root, rel_dir="" if rel == "." else rel,
+                                 name=os.path.basename(path), status=status, note=note[:4000],
+                                 inventory_id=inventory_id))
+        if len(self.buf) >= 500:
+            self.flush()
+
+    def flush(self):
+        if self.buf:
+            ScanFile.objects.bulk_create(self.buf)
+            self.buf = []
+
+
+PROGRESS = ["found", "ignored", "unchanged", "moved", "parsed", "pending", "accepted", "same_content", "errors", "stage", "to_parse",
             "current"]
 
 
@@ -84,13 +114,19 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
         exts = {e.lower() for e in settings.INVENTORY_EXTENSIONS}
         known = {sf.path: sf for sf in SourceFile.objects.filter(root__in=roots)}
         seen, todo, seen_sha = set(), [], {}
+        files = _Files(run)
+        S = ScanFile.Status
         now = timezone.now()
         for root in roots:
             if not os.path.isdir(root):
                 notes.append(f"папка недоступна: {root}")
                 run.errors += 1
                 continue
-            for path in _walk(root, exts):
+            for path, take in _walk(root, exts):
+                if not take:
+                    run.ignored += 1
+                    files.add(root, path, S.IGNORED)
+                    continue
                 run.found += 1
                 run.current = path
                 _progress(run)
@@ -100,6 +136,7 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 except OSError as e:
                     notes.append(f"нет доступа: {path}: {e}")
                     run.errors += 1
+                    files.add(root, path, S.ERROR, f"нет доступа: {e}")
                     continue
                 mtime = dt.datetime.fromtimestamp(st.st_mtime, tz=dt.timezone.utc)
                 sf = known.get(path)
@@ -109,11 +146,13 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                         sf.missing = False
                     sf.last_seen = now
                     sf.save(update_fields=["last_seen", "missing"])
+                    files.add(root, path, S.UNCHANGED)
                     continue
                 # Новая или изменённая книга — в разбор; хеш считает разбор из тех же
                 # байтов (одно чтение по сети вместо двух).
                 rel = os.path.relpath(os.path.dirname(path), root)
                 todo.append((path, root, "" if rel == "." else rel, st.st_size, mtime))
+        files.flush()
         gone = [sf for p, sf in known.items() if p not in seen and not sf.missing]
         for sf in gone:
             sf.missing = True
@@ -140,6 +179,7 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                     copies += 1
                     if copies <= 500:
                         notes.append(f"копия: {path} — как {twin}")
+                    files.add(root, path, S.COPY, f"как {twin}")
                     continue
                 seen_sha[sha] = path
             issues = data_issues(parsed)
@@ -152,6 +192,7 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 log.exception("опись не записана: %s", sf.path)
                 notes.append(f"не записана: {sf.path}: {type(e).__name__}: {e}")
                 run.errors += 1
+                files.add(root, path, S.ERROR, f"не записана: {type(e).__name__}: {e}")
                 continue
             # База не для ручной работы (решение пользователя 16.10.2026): опись с узлом
             # принимается сразу, без просмотра.
@@ -163,12 +204,17 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
             if inv.state == Inventory.State.ERROR:
                 run.errors += 1
                 notes.append(f"{sf.path}: {inv.error}")
+                files.add(root, path, S.ERROR, inv.error, inv.pk)
             elif inv.state == Inventory.State.UNCHANGED:
                 run.same_content += 1
+                files.add(root, path, S.SAME, issues, inv.pk)
             elif inv.state == Inventory.State.PENDING:
                 run.pending += 1
+                files.add(root, path, S.PENDING, issues, inv.pk)
             else:
                 run.accepted += 1
+                files.add(root, path, S.ACCEPTED, issues, inv.pk)
+        files.flush()
         run.state = ScanRun.State.DONE_ERRORS if run.errors else ScanRun.State.DONE
     except Exception as e:
         log.exception("обход прерван")

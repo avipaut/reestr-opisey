@@ -141,6 +141,11 @@ AUTO_ACCEPT = env("AUTO_ACCEPT", "1") == "1"
 IMPORT_LOG_DIR = BASE_DIR / "logs" / "import"
 if "test" in __import__("sys").argv:
     IMPORT_LOG_DIR = Path(__import__("tempfile").mkdtemp(prefix="reestr-test-logs-"))
+# Читаются только книги внутри этих папок — результат модуля нормализации; исходные
+# книги рядом не открываются (решение пользователя 16.10.2026). Пусто — читать все.
+PROCESSED_FOLDERS = [x for x in (env("PROCESSED_FOLDERS", "обработанные") or "").split(";") if x.strip()]
+if "test" in __import__("sys").argv:
+    PROCESSED_FOLDERS = []  # тесты строят книги без этой папки; правило проверяет свой тест
 # Служебные папки — не узлы: их книги относятся к узлу папки выше (годы «2025» — тоже).
 SERVICE_FOLDERS = ["обработанные", "обработанное", "архив", "старые", "старое", "исходные", "копии", "temp", "tmp"]
 

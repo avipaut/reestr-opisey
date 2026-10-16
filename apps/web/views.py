@@ -216,10 +216,11 @@ def scans(request):
 
 @login_required
 def scan_detail(request, pk):
-    run = get_object_or_404(ScanRun, pk=pk)
-    found = (Inventory.objects.filter(parsed_at__gte=run.started_at, state=Inventory.State.PENDING)
-             .select_related("source_file", "node").order_by("parsed_at")[:500]) if run.finished_at else []
-    return render(request, "web/scan_detail.html", {"run": run, "found": found, "nav": "import"})
+    run = ScanRun.objects.filter(pk=pk).first()
+    if run is None:  # база очищена, а страница хода была открыта — без ошибки 404
+        messages.info(request, "Этого обхода больше нет — база очищена. Последние обходы — ниже.")
+        return redirect("import_page")
+    return render(request, "web/scan_detail.html", {"run": run, "nav": "import"})
 
 
 @login_required

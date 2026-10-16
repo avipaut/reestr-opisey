@@ -279,3 +279,25 @@ class AutoAcceptTests(TransactionTestCase):
         services.scan([self.root], workers=1)
         self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 5)
         self.assertEqual(Item.objects.filter(excluded=True).count(), 2)
+
+
+@override_settings(PROCESSED_FOLDERS=["обработанные"], AUTO_ACCEPT=True)
+class ProcessedOnlyTests(TransactionTestCase):
+    """Читаются только книги в «обработанные»; исходные рядом не открываются и в журнал не идут."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_only_processed_books_are_read(self):
+        org = os.path.join(self.root, "115", "8. Тест")
+        make_book(os.path.join(org, "обработанные", "опись.xlsx"), BASE)
+        make_book(os.path.join(org, "исходная.xlsx"), BASE + [row("Лишнее", "31123130", "Резерв", inv="z")])
+        open(os.path.join(org, "битая исходная.xlsx"), "wb").write(b"x")
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.found, run.accepted, run.errors), (1, 1, 0))
+        self.assertNotIn("исходн", run.log)
+        self.assertEqual(Inventory.objects.get().node.path, "/115/8/")
+

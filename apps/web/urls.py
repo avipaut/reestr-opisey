@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_folders, views_items, views_nodes
+from . import views, views_folders, views_items, views_nodes, views_scan
 
 urlpatterns = [
     path("", views.review_list, name="review_list"),
@@ -12,6 +12,8 @@ urlpatterns = [
     path("stats/orgs/", views.stats_orgs, name="stats_orgs"),
     path("scans/", views.scans, name="scans"),
     path("scans/<int:pk>/", views.scan_detail, name="scan_detail"),
+    path("scans/<int:pk>/progress/", views_scan.scan_progress, name="scan_progress"),
+    path("scans/<int:pk>/tree/", views_scan.scan_tree, name="scan_tree"),
     path("import/fs/", views_folders.fs_list, name="fs_list"),
     path("import/folder/", views_folders.import_folder, name="import_folder"),
     path("import/", views_items.import_page, name="import_page"),

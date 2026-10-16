@@ -1,36 +1,34 @@
-{% extends "web/base.html" %}{% load num %}
+{% extends "web/base.html" %}{% load num static %}
 {% block title %}Обход — Реестр описей{% endblock %}
 {% block content %}
-{% if not run.finished_at %}<meta http-equiv="refresh" content="3">{% endif %}
 <div class="crumbs"><a href="{% url 'import_page' %}">Импорт</a><span class="sep">/</span><span>обход {{ run.started_at|date:"d.m.Y H:i" }}</span></div>
-<h1>{% if run.finished_at %}Обход закончен{% else %}Идёт обход…{% endif %}</h1>
-<p class="sub">{{ run.roots|join:", " }}</p>
+<h1 id="sc-title">{% if run.finished_at %}Обход закончен{% else %}Идёт обход…{% endif %}</h1>
+<p class="sub">{{ run.roots|join:", " }}{% if run.finished_at %} · {{ run.duration|num:1 }} с{% endif %}</p>
 
-{% if not run.finished_at %}
-<div class="card pad">
-  <p><b>{{ run.stage|default:"в очереди" }}</b>{% if run.current %} · <span class="muted">{{ run.current }}</span>{% endif %}</p>
-  {% if run.to_parse %}<div class="upbar"><div style="width: {% widthratio run.parsed run.to_parse 100 %}%"></div></div>
-  <p class="muted">Разобрано {{ run.parsed|num }} из {{ run.to_parse|num }}</p>{% endif %}
-  <p class="muted">Найдено файлов {{ run.found|num }}: без изменений {{ run.unchanged|num }}, копий {{ run.moved|num }}{% if run.errors %}, ошибок {{ run.errors|num }}{% endif %}. Страница обновляется сама.</p>
+<div class="card pad" id="sc" data-run="{{ run.pk }}" data-finished="{% if run.finished_at %}1{% endif %}">
+  <p><b id="sc-stage">{% if run.finished_at %}{{ run.get_state_display }}{% else %}{{ run.stage|default:"в очереди" }}{% endif %}</b>
+     <span class="muted" id="sc-current">{% if not run.finished_at %}{{ run.current }}{% endif %}</span></p>
+  <div class="upbar" id="sc-bar" {% if run.finished_at or not run.to_parse %}hidden{% endif %}><div style="width: {% widthratio run.parsed run.to_parse 100 %}%"></div></div>
+  <div class="legend" role="group" aria-label="Итоги по файлам — щелчок оставляет в дереве только этот вид">
+    <button type="button" class="lg on" data-st="">все файлы</button>
+    <button type="button" class="lg st-accepted" data-st="accepted">считано <b data-k="accepted">{{ run.accepted|num }}</b></button>
+    <button type="button" class="lg st-unchanged" data-st="unchanged">без изменений <b data-k="unchanged">{{ run.unchanged|num }}</b></button>
+    <button type="button" class="lg st-same" data-st="same">строки как в актуальной <b data-k="same_content">{{ run.same_content|num }}</b></button>
+    <button type="button" class="lg st-copy" data-st="copy">копии <b data-k="moved">{{ run.moved|num }}</b></button>
+    <button type="button" class="lg st-ignored" data-st="ignored">проигнорировано <b data-k="ignored">{{ run.ignored|num }}</b></button>
+    <button type="button" class="lg st-error" data-st="error">ошибки <b data-k="errors">{{ run.errors|num }}</b></button>
+    <span class="muted">книг с ошибками данных: <b data-k="warnings">{{ run.warnings|num }}</b> · разобрано <b data-k="parsed">{{ run.parsed|num }}</b> из <b data-k="to_parse">{{ run.to_parse|num }}</b></span>
+  </div>
 </div>
-{% else %}
-<div class="tiles">
-  <div class="tile"><div class="k">Итог</div><div class="v"><span class="tag {% if run.state == 'done' %}ok{% else %}bad{% endif %}">{{ run.get_state_display }}</span></div><div class="d muted">{{ run.duration|num:1 }} с</div></div>
-  <div class="tile"><div class="k">Файлов найдено</div><div class="v">{{ run.found|num }}</div><div class="d muted">без изменений {{ run.unchanged|num }} · копий {{ run.moved|num }}</div></div>
-  <div class="tile"><div class="k">На просмотр</div><div class="v">{{ run.pending|num }}</div><div class="d muted">строки как в актуальной: {{ run.same_content|num }}</div></div>
-  <div class="tile"><div class="k">Принято</div><div class="v">{{ run.accepted|num }}</div></div>
-  <div class="tile"><div class="k">Ошибок</div><div class="v {% if run.errors %}minus{% endif %}">{{ run.errors|num }}</div><div class="d muted">книг с ошибками данных: {{ run.warnings|num }}</div></div>
+
+<div class="card">
+  <h2>Файлы обхода</h2>
+  <ul class="ftree" id="ftree" role="tree" aria-label="Папки и файлы обхода"></ul>
+  <p class="pad muted" id="ftree-empty" hidden>Файлов нет.</p>
 </div>
-{% if run.log %}<div class="card"><h2>Журнал — ошибки по файлам</h2>
+
+{% if run.log %}<div class="card"><details class="list"><summary>Журнал — ошибки по файлам</summary>
   {% if run.log_file %}<p class="pad muted">Файл журнала: <code>{{ run.log_file }}</code></p>{% endif %}
-  <div class="pad muted logtext">{{ run.log|linebreaksbr }}</div></div>{% endif %}
-<div class="card"><h2>Ждут просмотра</h2>
-  {% if found %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Файл</th><th>Узел</th><th class="n">Позиций</th></tr></thead>
-  <tbody>{% for inv in found %}<tr><td class="wrap"><a href="{% url 'review_detail' inv.pk %}">{{ inv.source_file.name }}</a><div class="muted">{{ inv.source_file.rel_folder }}</div></td>
-    <td>{% if inv.node %}{{ inv.node.trail }}{% elif inv.node_resolved %}<span class="tag">будет создан</span> {% for p in inv.proposed_path %}{{ p.code }}{% if p.name %}. {{ p.name }}{% endif %}{% if not forloop.last %} › {% endif %}{% endfor %}{% else %}<span class="tag warn">укажите узел</span>{% endif %}</td>
-    <td class="n">{{ inv.rows|num }}</td></tr>{% endfor %}</tbody></table></div>
-  <div class="pad"><a class="btn primary" href="{% url 'review_detail' found.0.pk %}">Начать просмотр</a></div>
-  {% else %}<div class="empty">Новых описей нет.</div>{% endif %}
-</div>
-{% endif %}
+  <div class="pad muted logtext">{{ run.log|linebreaksbr }}</div></details></div>{% endif %}
+<script src="{% static 'web/scantree.js' %}" defer></script>
 {% endblock %}

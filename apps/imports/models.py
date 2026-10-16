@@ -23,6 +23,7 @@ class ScanRun(models.Model):
     parsed = models.IntegerField("разобрано", default=0)
     pending = models.IntegerField("ждут просмотра", default=0)
     accepted = models.IntegerField("принято", default=0)
+    ignored = models.IntegerField("проигнорировано (вне «обработанные»)", default=0)
     warnings = models.IntegerField("книг с ошибками данных", default=0)
     log_file = models.CharField("файл журнала", max_length=1000, blank=True)
     same_content = models.IntegerField("строки как в актуальной", default=0)
@@ -61,3 +62,31 @@ class AcceptJob(models.Model):
         verbose_name = "массовый приём"
         verbose_name_plural = "массовые приёмы"
         ordering = ["-started_at"]
+
+
+class ScanFile(models.Model):
+    """Итог обхода по каждому файлу — для дерева файлов на странице обхода
+    (пользователь 16.10.2026: «И файловую структуру в студию при импорте. Что
+    проигнорировано, что считано тоже прямо в ней»)."""
+
+    class Status(models.TextChoices):
+        ACCEPTED = "accepted", "считано"
+        PENDING = "pending", "ждёт просмотра"
+        SAME = "same", "строки как в актуальной"
+        UNCHANGED = "unchanged", "без изменений"
+        COPY = "copy", "копия"
+        IGNORED = "ignored", "проигнорировано (вне «обработанные»)"
+        ERROR = "error", "ошибка"
+
+    run = models.ForeignKey(ScanRun, on_delete=models.CASCADE, related_name="files")
+    root = models.CharField("корень", max_length=1000)
+    rel_dir = models.CharField("папка от корня", max_length=1500, blank=True)
+    name = models.CharField("файл", max_length=500)
+    status = models.CharField("итог", max_length=12, choices=Status.choices)
+    note = models.TextField("пояснение", blank=True)
+    inventory_id = models.BigIntegerField("опись", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "файл обхода"
+        verbose_name_plural = "файлы обхода"
+        indexes = [models.Index(fields=["run", "rel_dir"], name="scanfile_run_dir")]

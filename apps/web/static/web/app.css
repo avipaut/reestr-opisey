@@ -203,3 +203,24 @@ table.data tbody.groups tr:last-child td { border-bottom: 2px solid var(--line-2
 table.data th.grp, table.data td.grp { background: #f2f6fb; font-weight: 600; }
 .measure { margin: -8px 0 14px; padding: 8px 12px; background: #f2f6fb; border-radius: 6px; color: var(--ink-2); max-width: 1100px; }
 .logtext { max-height: 60vh; overflow: auto; overflow-wrap: anywhere; font-size: 13px; }
+/* дерево файлов обхода */
+.legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.lg { border: 1px solid var(--line-2); background: #fff; border-radius: 14px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+.lg.on { outline: 2px solid var(--accent); outline-offset: 0; }
+.lg b { font-variant-numeric: tabular-nums; margin-left: 4px; }
+.ftree, .ftree ul { list-style: none; margin: 0; padding: 0; }
+.ftree { padding: 6px 0; }
+.ftree ul { padding-left: 20px; }
+.ft-row { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px 0 6px; }
+.ft-row:hover { background: #f5f8fc; }
+.ft-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ft-cnts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.cnt { font-size: 12px; padding: 0 6px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+.ft-note { padding: 0 12px 6px 36px; font-size: 12px; overflow-wrap: anywhere; }
+.ft-empty { padding: 6px 12px; }
+.st-accepted { background: var(--ok-soft); color: var(--ok); }
+.st-unchanged, .st-same { background: #eef2f7; color: var(--ink-2); }
+.st-copy { background: #f1ecfa; color: #5b3b99; }
+.st-ignored { background: #f4f4f4; color: #777; }
+.st-error { background: var(--bad-soft); color: var(--bad); }
+.st-pending { background: var(--warn-soft); color: var(--warn); }

@@ -20,8 +20,9 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         run = scan(opts["roots"] or None, opts["workers"])
         self.stdout.write(
-            f"{run.get_state_display()}: найдено {run.found}, без изменений {run.unchanged}, "
-            f"то же содержимое {run.moved}, разобрано {run.parsed}, ждут просмотра {run.pending}, "
+            f"{run.get_state_display()}: найдено {run.found}, проигнорировано {run.ignored}, "
+            f"без изменений {run.unchanged}, копий {run.moved}, разобрано {run.parsed}, принято {run.accepted}, "
+            f"ждут просмотра {run.pending}, "
             f"строки как в актуальной {run.same_content}, ошибок {run.errors}, пропало {run.missing}, "
             f"{(run.finished_at - run.started_at).total_seconds():.1f} с")
         if run.log:

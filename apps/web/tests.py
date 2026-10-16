@@ -126,7 +126,13 @@ class FolderImportTests(TransactionTestCase):
         run = ScanRun.objects.latest("started_at")
         self.assertRedirects(r, reverse("scan_detail", args=[run.pk]), fetch_redirect_response=False)
         self.assertEqual((run.found, run.pending), (2, 2))
-        self.assertContains(self.client.get(reverse("scan_detail", args=[run.pk])), "Ждут просмотра")
+        self.assertContains(self.client.get(reverse("scan_detail", args=[run.pk])), "Файлы обхода")
+        top = self.client.get(reverse("scan_tree", args=[run.pk])).json()["dirs"][0]
+        self.assertEqual(top["counts"]["pending"], 2)
+        sub = self.client.get(reverse("scan_tree", args=[run.pk]) + "?root=0&dir=126").json()
+        self.assertEqual([d["name"] for d in sub["dirs"]], ["8. Тест"])
+        leaf = self.client.get(reverse("scan_tree", args=[run.pk]) + "?root=0&dir=126\8. Тест").json()
+        self.assertEqual([(f["name"], f["status"]) for f in leaf["files"]], [("опись.xlsx", "pending")])
         paths = sorted(p for inv in Inventory.objects.all() for p in ["/".join(x["code"] for x in inv.proposed_path)])
         self.assertEqual(paths, ["126/8", "127"])
 
