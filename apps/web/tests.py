@@ -8,12 +8,13 @@ import tempfile
 
 import openpyxl
 from django.contrib.auth.models import User
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 
 from apps.imports import services
 from apps.imports.tests import BASE, make_book
 from apps.inventories.models import Inventory
+from apps.imports.models import ScanRun
 
 
 class ScreensTests(TransactionTestCase):
@@ -98,16 +99,31 @@ class SearchAndNodesTests(TransactionTestCase):
         with self.assertRaises(ValueError):
             orgs.add_node(top, "8", "дубль кода")
 
-    def test_upload_goes_to_review_with_chosen_node(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from apps.orgs.models import Node
-        p = os.path.join(self.root, "новая.xlsx")
-        make_book(p, BASE + [["Сервер", 31122110, 1, "77", 900000, 0, 900000, 2, None, "31123130", None, "x", None,
-                              None, "Основной список", "", "", "Компьютерное оборудование", "Нет"]])
-        node = Node.objects.get(path="/126/8/")
-        with open(p, "rb") as f:
-            r = self.client.post(reverse("import_upload"), {"node": node.pk,
-                                 "files": SimpleUploadedFile("новая.xlsx", f.read())})
-        inv = Inventory.objects.get(state=Inventory.State.PENDING)
-        self.assertEqual(inv.node, node)
-        self.assertRedirects(r, reverse("review_detail", args=[inv.pk]), fetch_redirect_response=False)
+
+@override_settings(SCAN_SYNC=True)
+class FolderImportTests(TransactionTestCase):
+    """Выбранная папка обходится рекурсивно; её подпапки — учреждения и подведы."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "8. Тест", "опись.xlsx"), BASE)
+        make_book(os.path.join(self.root, "127", "опись.xlsx"), BASE + [["Ещё", 1, 1, "x9", 1, 0, 1, 5, None,
+                  "31123130", None, "x", None, None, "Резерв", "", "", "", "Нет"]])
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_browse_server_folders(self):
+        d = self.client.get(reverse("fs_list") + "?path=" + self.root).json()
+        self.assertEqual([x["name"] for x in d["dirs"]], ["126", "127"])
+        self.assertEqual(self.client.get(reverse("fs_list") + "?path=Z:/нет/такой").status_code, 404)
+
+    def test_read_server_folder_recursively(self):
+        r = self.client.post(reverse("import_folder"), {"path": self.root})
+        run = ScanRun.objects.latest("started_at")
+        self.assertRedirects(r, reverse("scan_detail", args=[run.pk]), fetch_redirect_response=False)
+        self.assertEqual((run.found, run.pending), (2, 2))
+        self.assertContains(self.client.get(reverse("scan_detail", args=[run.pk])), "Ждут просмотра")
+        paths = sorted(p for inv in Inventory.objects.all() for p in ["/".join(x["code"] for x in inv.proposed_path)])
+        self.assertEqual(paths, ["126/8", "127"])

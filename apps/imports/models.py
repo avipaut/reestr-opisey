@@ -26,6 +26,10 @@ class ScanRun(models.Model):
     errors = models.IntegerField("ошибок", default=0)
     missing = models.IntegerField("пропали из папки", default=0)
     log = models.TextField("журнал", blank=True)
+    # Ход обхода — для экрана, пока обход идёт (обновляется раз в несколько файлов).
+    stage = models.CharField("этап", max_length=40, blank=True)
+    to_parse = models.IntegerField("к разбору", default=0)
+    current = models.CharField("текущий файл", max_length=1000, blank=True)
 
     class Meta:
         verbose_name = "обход папок"

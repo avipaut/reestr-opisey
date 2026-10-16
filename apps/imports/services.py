@@ -55,11 +55,24 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def scan(roots=None, workers=None) -> ScanRun:
+PROGRESS = ["found", "unchanged", "moved", "parsed", "pending", "same_content", "errors", "stage", "to_parse",
+            "current"]
+
+
+def _progress(run, every=20, force=False):
+    """Ход обхода в базу — чтобы экран показывал, что идёт, не дожидаясь конца."""
+    n = run.found + run.parsed
+    if force or n % every == 0:
+        run.save(update_fields=PROGRESS)
+
+
+def scan(roots=None, workers=None, run=None) -> ScanRun:
     """Обойти папки. Один обход за раз — блокировка в базе, снимается сама
     при обрыве соединения."""
     roots = [os.path.normpath(r) for r in (roots or settings.INVENTORY_ROOTS)]
-    run = ScanRun.objects.create(roots=roots)
+    run = run or ScanRun.objects.create(roots=roots)
+    run.roots, run.stage = roots, "поиск файлов"
+    run.save(update_fields=["roots", "stage"])
     with connection.cursor() as c:
         c.execute("select pg_try_advisory_lock(%s)", [SCAN_LOCK])
         got = c.fetchone()[0]
@@ -80,6 +93,8 @@ def scan(roots=None, workers=None) -> ScanRun:
                 continue
             for path in _walk(root, exts):
                 run.found += 1
+                run.current = path
+                _progress(run)
                 seen.add(path)
                 try:
                     st = os.stat(path)
@@ -119,8 +134,12 @@ def scan(roots=None, workers=None) -> ScanRun:
             sf.save(update_fields=["missing"])
         run.missing = len(gone)
 
+        run.stage, run.to_parse = "разбор книг", len(todo)
+        _progress(run, force=True)
         for sf, parsed in _parse_all(todo, workers):
             run.parsed += 1
+            run.current = sf.path
+            _progress(run, every=5)
             try:
                 inv = _stage(sf, parsed)
             except Exception as e:  # одна книга не валит обход, но и не теряется
@@ -144,6 +163,7 @@ def scan(roots=None, workers=None) -> ScanRun:
         with connection.cursor() as c:
             c.execute("select pg_advisory_unlock(%s)", [SCAN_LOCK])
         run.finished_at = timezone.now()
+        run.stage, run.current = "", ""
         run.log = "\n".join(notes)
         run.save()
     return run
@@ -288,40 +308,3 @@ def reject(inv: Inventory, user=None) -> Inventory:
     inv.state, inv.decided_at, inv.decided_by = Inventory.State.REJECTED, timezone.now(), user
     inv.save(update_fields=["state", "decided_at", "decided_by"])
     return inv
-
-
-# ------------------------------------------------------------------ загрузка
-
-UPLOAD_ROOT = "загрузка"
-
-
-def stage_upload(uploaded, node, user):
-    """Опись, загруженная через браузер: сохраняется в MEDIA_ROOT/uploads и
-    разбирается тем же путём, что найденная в папке. Узел — выбранный
-    пользователем (ТЗ 1.4); без узла — «укажите узел» в просмотре.
-    Возвращает (опись или None, пояснение)."""
-    data = uploaded.read()
-    sha = hashlib.sha256(data).hexdigest()
-    known = Inventory.objects.filter(sha256=sha).exclude(state=Inventory.State.ERROR).first()
-    if known:
-        return None, f"уже загружена ({known.get_state_display()})"
-    folder = os.path.join(settings.MEDIA_ROOT, "uploads", timezone.localtime().strftime("%Y-%m-%d"))
-    os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, f"{sha[:12]}_{os.path.basename(uploaded.name)}")
-    with open(path, "wb") as f:
-        f.write(data)
-    now = timezone.now()
-    sf, _ = SourceFile.objects.update_or_create(path=path, defaults=dict(
-        root=UPLOAD_ROOT, rel_folder="", name=os.path.basename(uploaded.name), size=len(data),
-        mtime=now, sha256=sha, last_seen=now))
-    inv = _stage(sf, parse_book(path, data))
-    if node is not None and inv.state in (Inventory.State.PENDING, Inventory.State.ERROR):
-        inv.node, inv.node_resolved, inv.proposed_path = node, True, []
-        inv.save(update_fields=["node", "node_resolved", "proposed_path"])
-        cur = Inventory.objects.filter(node=node, is_current=True).first()
-        if inv.state == Inventory.State.PENDING and cur and cur.content_hash == inv.content_hash:
-            inv.items.all().delete()
-            inv.state = Inventory.State.UNCHANGED
-            inv.save(update_fields=["state"])
-            return inv, "строки как в актуальной описи узла"
-    return inv, ""

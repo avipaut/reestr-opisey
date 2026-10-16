@@ -36,40 +36,11 @@ def _totals(qs):
 
 @login_required
 def import_page(request):
+    from .views_folders import recent_folders
     roots = [{"path": r, "ok": os.path.isdir(r)} for r in settings.INVENTORY_ROOTS]
-    uploads = (Inventory.objects.filter(source_file__root="загрузка").select_related("source_file", "node")
-               .order_by("-parsed_at")[:20])
     return render(request, "web/import.html", {
-        "roots": roots, "runs": ScanRun.objects.all()[:5], "uploads": uploads, "nav": "import"})
-
-
-@login_required
-@permission_required("inventories.add_inventory", raise_exception=True)
-@require_POST
-def import_upload(request):
-    files = request.FILES.getlist("files")
-    node = Node.objects.filter(pk=request.POST.get("node")).first() if request.POST.get("node") else None
-    if not files:
-        messages.error(request, "Файлы не выбраны")
-        return redirect("import_page")
-    ok, last = 0, None
-    for f in files:
-        if os.path.splitext(f.name)[1].lower() not in settings.INVENTORY_EXTENSIONS:
-            messages.error(request, f"{f.name}: не книга Excel (.xlsx, .xlsm)")
-            continue
-        inv, note = imports.stage_upload(f, node, request.user)
-        if inv is None:
-            messages.warning(request, f"{f.name}: {note}")
-            continue
-        if inv.state == Inventory.State.ERROR:
-            messages.error(request, f"{f.name}: {inv.error}")
-            continue
-        ok += 1
-        last = inv
-        messages.success(request, f"{f.name}: {inv.get_state_display()}" + (f" — {note}" if note else ""))
-    if ok == 1 and last.state == Inventory.State.PENDING:
-        return redirect("review_detail", pk=last.pk)
-    return redirect("review_list" if ok else "import_page")
+        "roots": roots, "runs": ScanRun.objects.all()[:5], "recent": recent_folders(),
+        "running": ScanRun.objects.filter(finished_at__isnull=True).first(), "nav": "import"})
 
 
 # ------------------------------------------------------------------ описи

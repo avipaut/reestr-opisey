@@ -192,3 +192,11 @@ def _params(request, at, node, view):
 @login_required
 def scans(request):
     return render(request, "web/scans.html", {"runs": ScanRun.objects.all()[:100], "nav": "scans"})
+
+
+@login_required
+def scan_detail(request, pk):
+    run = get_object_or_404(ScanRun, pk=pk)
+    found = (Inventory.objects.filter(parsed_at__gte=run.started_at, state=Inventory.State.PENDING)
+             .select_related("source_file", "node").order_by("parsed_at")[:500]) if run.finished_at else []
+    return render(request, "web/scan_detail.html", {"run": run, "found": found, "nav": "import"})

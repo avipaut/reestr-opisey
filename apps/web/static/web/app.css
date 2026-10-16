@@ -177,3 +177,19 @@ code { font-family: Consolas, monospace; font-size: 13px; overflow-wrap: anywher
 table.data th { white-space: nowrap; }
 /* длинный текст в узком столбце — одной строкой с многоточием, полностью — в подсказке */
 table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* импорт папки */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.chip { border: 1px solid var(--line-2); background: #fff; border-radius: 14px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { background: var(--accent-soft); }
+.fs { margin-top: 12px; border: 1px solid var(--line-2); border-radius: 8px; }
+.fs-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.fs-crumbs { color: var(--ink-3); overflow-wrap: anywhere; }
+.fs-crumbs button { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+.fs-list { list-style: none; margin: 0; padding: 4px 0; max-height: 320px; overflow: auto; }
+.fs-list button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 8px 12px; cursor: pointer; overflow-wrap: anywhere; }
+.fs-list button::before { content: "▸ "; color: var(--ink-3); }
+.fs-list button:hover, .fs-list button:focus-visible { background: var(--accent-soft); }
+.fs-sep { padding: 8px 12px 2px; font-size: 12px; }
+.fs-msg:not(:empty) { padding: 8px 12px; border-top: 1px solid var(--line); }
+.upbar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 10px 0; }
+.upbar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
