@@ -6,14 +6,7 @@
 
 <form class="filters" method="get">
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
-  <label>Учреждение
-    <select name="node" onchange="this.form.submit()">
-      <option value="">Все учреждения</option>
-      {% if node %}{% for c in crumbs %}<option value="{{ c.pk }}" {% if c.pk == node.pk %}selected{% endif %}>{{ c.path }} {{ c.name }}</option>{% endfor %}{% endif %}
-      {% for r in roots %}{% if not node or r.pk != crumbs.0.pk %}<option value="{{ r.pk }}">{{ r.path }} {{ r.name }}</option>{% endif %}{% endfor %}
-      {% for c in children %}<option value="{{ c.pk }}">↳ {{ c.path }} {{ c.name }}</option>{% endfor %}
-    </select>
-  </label>
+  <label class="wide">Учреждение (с подведами){% with np_node=node %}{% include "web/_node_picker.html" %}{% endwith %}</label>
   <button class="btn" type="submit">Показать</button>
   <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
 </form>

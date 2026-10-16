@@ -1,0 +1,12 @@
+{% extends "web/base.html" %}
+{% block title %}Поиск позиций — Реестр описей{% endblock %}
+{% block content %}
+<h1>Поиск позиций</h1>
+<p class="sub">По всем актуальным описям или на выбранную дату. Количество — с учётом столбца «Количество»; выгрузка — вся выборка.</p>
+{% include "web/_item_filters.html" %}
+{% if f.active %}
+  {% with qs=f.querystring show_node=1 %}{% include "web/_items_table.html" %}{% endwith %}
+{% else %}
+  <div class="card"><div class="empty"><b>Задайте условия отбора</b>Текст ищется в наименовании, инвентарном номере и модели; инвентарный номер — и без разделителей («М-205» = «M205»).</div></div>
+{% endif %}
+{% endblock %}

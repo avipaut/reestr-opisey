@@ -1,0 +1,15 @@
+<form class="filters" method="get">
+  <label class="wide">Наименование, инв. номер или модель<input type="text" name="q" value="{{ f.q }}" placeholder="например: принтер, 0620240815, R740"></label>
+  {% if not hide_node %}<label class="wide">Учреждение (с подведами){% with np_node=f.node %}{% include "web/_node_picker.html" %}{% endwith %}</label>{% endif %}
+  <label>Код учёта<input type="text" name="code" value="{{ f.code }}" size="10" inputmode="numeric"></label>
+  <label>Статус<select name="status"><option value="">все</option>{% for s in statuses %}<option value="{{ s.pk }}" {% if f.status.pk == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+  <label>Приоритет<select name="priority"><option value="">все</option>{% for p in priorities %}<option {% if f.priority == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+  <label>Тип объекта<select name="otype"><option value="">все</option>{% for t in otypes %}<option value="{{ t.pk }}" {% if f.otype.pk == t.pk %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></label>
+  <label>Лист<select name="sheet"><option value="">все</option>{% for s in sheets %}<option {% if f.sheet == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+  <label>Стоимость от<input type="text" name="cost_min" value="{{ f.cost_min|default_if_none:'' }}" size="9" inputmode="decimal"></label>
+  <label>до<input type="text" name="cost_max" value="{{ f.cost_max|default_if_none:'' }}" size="9" inputmode="decimal"></label>
+  {% if not hide_date %}<label>На дату<input type="date" name="date" value="{{ f.date }}"></label>{% endif %}
+  <label class="check"><input type="checkbox" name="marked" value="1" {% if f.marked %}checked{% endif %}> с отметками</label>
+  <button class="btn primary" type="submit">Найти</button>
+  {% if f.active %}<a class="btn" href="?">Сбросить</a><button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>{% endif %}
+</form>

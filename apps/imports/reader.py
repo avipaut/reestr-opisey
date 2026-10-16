@@ -188,6 +188,7 @@ def _list_sheet(ws, out_items, unknown_cols):
         it["name_fill"] = _fill(row[cols["name"]]) if cols["name"] < len(row) else ""
         it["extra"] = {name: text(vals[i]) for i, name in unknown if i < len(vals) and text(vals[i])}
         it["inv_key"] = inv_key(it["inv_no"])
+        it["search"] = norm(" ".join(x for x in (it["name"], it["inv_no"], it["model"]) if x))
         h = hashlib.md5("\x1f".join(str(it.get(f) or "") for f in COLUMNS).encode("utf-8")).hexdigest()
         it["row_hash"] = h
         out_items.append(it)

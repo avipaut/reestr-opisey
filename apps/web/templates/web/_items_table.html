@@ -1,0 +1,30 @@
+{% load num %}
+{% if tot %}<div class="tiles">
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
+  <div class="tile"><div class="k">Количество</div><div class="v">{{ tot.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость</div><div class="v">{{ tot.cost|num:2 }}</div></div>
+  <div class="tile"><div class="k">Балансовая стоимость</div><div class="v">{{ tot.bal|num:2 }}</div></div>
+</div>{% endif %}
+<div class="card">
+  {% if page.object_list %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr>{% if show_node %}<th>Учреждение</th>{% endif %}<th>Инв. №</th><th>Основное средство</th><th>Код</th><th>Статус</th><th class="n">П</th><th class="n">Кол.</th><th class="n">Первонач. стоимость</th><th class="n">Балансовая</th><th>Тип объекта</th><th>Лист, строка</th></tr></thead>
+    <tbody>{% for it in page.object_list %}<tr>
+      {% if show_node %}<td class="clip" title="{{ it.inventory.node.trail }}"><a href="{% url 'inventory_detail' it.inventory_id %}">{{ it.inventory.node.trail }}</a></td>{% endif %}
+      <td class="nw">{{ it.inv_no|default:"—" }}</td>
+      <td class="wrap"><a href="{% url 'item_detail' it.pk %}">{{ it.name }}</a>{% if it.model and it.model not in it.name %} <span class="muted">· {{ it.model }}</span>{% endif %}{% if it.user_mark or it.name_fill %} <span class="tag warn" title="{{ it.user_mark }}">отметка</span>{% endif %}</td>
+      <td class="nw">{{ it.recommended_code|default:"—" }}</td>
+      <td class="nw">{{ it.status|default:"—" }}{% if it.status.name != it.status_doc and it.status_doc %} <span class="tag" title="по описи: {{ it.status_doc }}">изменён</span>{% endif %}</td>
+      <td class="n">{{ it.priority|default_if_none:"" }}</td>
+      <td class="n">{{ it.qty|num }}</td>
+      <td class="n">{{ it.cost_initial|num:2 }}</td>
+      <td class="n">{{ it.cost_balance|num:2 }}</td>
+      <td class="muted clip" title="{{ it.object_type|default:'' }}">{{ it.object_type|default:"" }}</td>
+      <td class="muted nw">{{ it.sheet }}, {{ it.row_no }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "web/_pager.html" %}
+  {% else %}
+  <div class="empty"><b>Ничего не найдено</b>Измените условия отбора.</div>
+  {% endif %}
+</div>

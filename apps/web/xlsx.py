@@ -57,3 +57,45 @@ def xlsx_response(title, headers, rows, total, params):
     from urllib.parse import quote
     resp["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(name)}"
     return resp
+
+
+ITEM_COLUMNS = [
+    ("Учреждение", lambda i: i.inventory.node.trail if i.inventory.node_id else ""),
+    ("Лист", lambda i: i.sheet), ("Строка", lambda i: i.row_no), ("Основное средство", lambda i: i.name),
+    ("Инв. номер", lambda i: i.inv_no), ("Код учёта", lambda i: i.account_code),
+    ("Рекомендуемый код", lambda i: i.recommended_code), ("Статус", lambda i: str(i.status or "")),
+    ("Статус по описи", lambda i: i.status_doc), ("Приоритет", lambda i: i.priority),
+    ("Количество", lambda i: i.qty), ("Первонач. стоимость", lambda i: i.cost_initial),
+    ("Накоп. износ", lambda i: i.depreciation), ("Балансовая стоимость", lambda i: i.cost_balance),
+    ("Модель", lambda i: i.model), ("Тип объекта", lambda i: str(i.object_type or "")),
+    ("Причина", lambda i: i.reason), ("Комментарий", lambda i: i.comment),
+    ("Полностью амортизирован", lambda i: {True: "Да", False: "Нет"}.get(i.fully_depreciated, "")),
+    ("Подразделение", lambda i: i.subdivision), ("МОЛ", lambda i: i.mol),
+    ("Отметка пользователя", lambda i: i.user_mark), ("Заливка наименования", lambda i: i.name_fill),
+]
+
+
+def items_xlsx_response(title, qs, params, request):
+    """Позиции — потоковой записью (write_only): объём выборки не ограничен,
+    память не растёт (граф: vygruzka-i-otchety-bez-potolkov-obema-…)."""
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title[:31])
+    ws.freeze_panes = "A2"
+    ws.append([h for h, _ in ITEM_COLUMNS])
+    n = 0
+    for it in qs.iterator(chunk_size=2000):
+        ws.append([_num(fn(it)) for _, fn in ITEM_COLUMNS])
+        n += 1
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(ITEM_COLUMNS))}{n + 1}"
+    ps = wb.create_sheet("Параметры")
+    for p in [("Параметр", "Значение"), ("Вид", title), *params, ("Позиций", n),
+              ("Кто выгрузил", request.user.get_username()),
+              ("Когда", timezone.localtime().strftime("%d.%m.%Y %H:%M"))]:
+        ps.append(list(p))
+    buf = io.BytesIO()
+    wb.save(buf)
+    from urllib.parse import quote
+    resp = HttpResponse(buf.getvalue(),
+                        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(title + timezone.localtime().strftime(' %Y-%m-%d %H-%M') + '.xlsx')}"
+    return resp

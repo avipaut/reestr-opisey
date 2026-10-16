@@ -12,6 +12,10 @@
     <div class="brand">Реестр описей</div>
     <a href="{% url 'review_list' %}" class="{% if nav == 'review' %}on{% endif %}">На просмотр
       {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
+    <a href="{% url 'import_page' %}" class="{% if nav == 'import' %}on{% endif %}">Импорт</a>
+    <a href="{% url 'nodes' %}" class="{% if nav == 'nodes' %}on{% endif %}">Учреждения</a>
+    <a href="{% url 'inventories' %}" class="{% if nav == 'inventories' %}on{% endif %}">Описи</a>
+    <a href="{% url 'items_search' %}" class="{% if nav == 'items' %}on{% endif %}">Поиск позиций</a>
     <a href="{% url 'stats_codes' %}" class="{% if nav == 'codes' %}on{% endif %}">Свод по кодам</a>
     <a href="{% url 'stats_orgs' %}" class="{% if nav == 'orgs' %}on{% endif %}">Код × учреждение</a>
     <a href="{% url 'scans' %}" class="{% if nav == 'scans' %}on{% endif %}">Журнал обходов</a>
@@ -25,5 +29,6 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+<script src="{% static 'web/nodes.js' %}" defer></script>
 </body>
 </html>

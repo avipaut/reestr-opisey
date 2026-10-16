@@ -1,0 +1,32 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Импорт — Реестр описей{% endblock %}
+{% block content %}
+<h1>Импорт описей</h1>
+<p class="sub">Нормализованные описи (после модуля коллеги) — из сетевой папки автоматически или загрузкой с компьютера. Каждая новая опись проходит просмотр.</p>
+
+<div class="card"><h2>Сетевые папки</h2>
+  <div class="pad">
+    {% if roots %}<ul class="plain">{% for r in roots %}<li>{% if r.ok %}<span class="tag ok">доступна</span>{% else %}<span class="tag bad">недоступна</span>{% endif %} <code>{{ r.path }}</code></li>{% endfor %}</ul>
+    {% else %}<p class="muted">Папки не заданы — строка INVENTORY_ROOTS в файле .env сервера.</p>{% endif %}
+    <p class="muted">Обход — по расписанию (Справочники → Django Q → Scheduled tasks). Учреждение — по папке первого уровня, подвед — по вложенной («126 / 8. Ошское ДНВТ»).</p>
+    <form method="post" action="{% url 'scan_now' %}">{% csrf_token %}<button class="btn" type="submit">Проверить сейчас</button> <a href="{% url 'scans' %}">журнал обходов</a></form>
+  </div>
+</div>
+
+{% if perms.inventories.add_inventory %}
+<div class="card"><h2>Загрузить с компьютера</h2>
+  <form class="pad filters" method="post" action="{% url 'import_upload' %}" enctype="multipart/form-data">{% csrf_token %}
+    <label class="wide">Описи (.xlsx, можно несколько)<input type="file" name="files" accept=".xlsx,.xlsm" multiple required></label>
+    <label class="wide">К чему относится (пусто — указать при просмотре){% with np_placeholder="учреждение или подвед" %}{% include "web/_node_picker.html" %}{% endwith %}</label>
+    <button class="btn primary" type="submit">Загрузить</button>
+  </form>
+</div>
+{% endif %}
+
+{% if uploads %}
+<div class="card"><h2>Загружено с компьютера</h2>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>Файл</th><th>Узел</th><th>Состояние</th><th class="n">Позиций</th><th>Загружено</th></tr></thead>
+  <tbody>{% for u in uploads %}<tr><td class="wrap"><a href="{% url 'review_detail' u.pk %}">{{ u.source_file.name }}</a></td><td>{{ u.node.trail|default:"—" }}</td><td><span class="tag">{{ u.get_state_display }}</span></td><td class="n">{{ u.rows|num }}</td><td class="nw muted">{{ u.parsed_at|date:"d.m.Y H:i" }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}

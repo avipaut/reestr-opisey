@@ -254,7 +254,7 @@ def _ensure_node(inv, user):
 
 
 @transaction.atomic
-def accept(inv: Inventory, user=None, node: Node = None) -> Inventory:
+def accept(inv: Inventory, user=None, node: Node = None, at=None) -> Inventory:
     """Принять опись: она — актуальная версия узла; прежняя уходит в историю."""
     inv = Inventory.objects.select_for_update().get(pk=inv.pk)
     if inv.state != Inventory.State.PENDING:
@@ -265,7 +265,7 @@ def accept(inv: Inventory, user=None, node: Node = None) -> Inventory:
             FolderMapping.objects.update_or_create(folder=inv.source_file.rel_folder, defaults={"node": node})
     else:
         inv.node = _ensure_node(inv, user)
-    now = timezone.now()
+    now = at or timezone.now()  # at — только для тестового набора с историей
     prev = Inventory.objects.select_for_update().filter(node=inv.node, is_current=True).first()
     if prev:
         prev.is_current, prev.valid_to = False, now
@@ -288,3 +288,40 @@ def reject(inv: Inventory, user=None) -> Inventory:
     inv.state, inv.decided_at, inv.decided_by = Inventory.State.REJECTED, timezone.now(), user
     inv.save(update_fields=["state", "decided_at", "decided_by"])
     return inv
+
+
+# ------------------------------------------------------------------ загрузка
+
+UPLOAD_ROOT = "загрузка"
+
+
+def stage_upload(uploaded, node, user):
+    """Опись, загруженная через браузер: сохраняется в MEDIA_ROOT/uploads и
+    разбирается тем же путём, что найденная в папке. Узел — выбранный
+    пользователем (ТЗ 1.4); без узла — «укажите узел» в просмотре.
+    Возвращает (опись или None, пояснение)."""
+    data = uploaded.read()
+    sha = hashlib.sha256(data).hexdigest()
+    known = Inventory.objects.filter(sha256=sha).exclude(state=Inventory.State.ERROR).first()
+    if known:
+        return None, f"уже загружена ({known.get_state_display()})"
+    folder = os.path.join(settings.MEDIA_ROOT, "uploads", timezone.localtime().strftime("%Y-%m-%d"))
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{sha[:12]}_{os.path.basename(uploaded.name)}")
+    with open(path, "wb") as f:
+        f.write(data)
+    now = timezone.now()
+    sf, _ = SourceFile.objects.update_or_create(path=path, defaults=dict(
+        root=UPLOAD_ROOT, rel_folder="", name=os.path.basename(uploaded.name), size=len(data),
+        mtime=now, sha256=sha, last_seen=now))
+    inv = _stage(sf, parse_book(path, data))
+    if node is not None and inv.state in (Inventory.State.PENDING, Inventory.State.ERROR):
+        inv.node, inv.node_resolved, inv.proposed_path = node, True, []
+        inv.save(update_fields=["node", "node_resolved", "proposed_path"])
+        cur = Inventory.objects.filter(node=node, is_current=True).first()
+        if inv.state == Inventory.State.PENDING and cur and cur.content_hash == inv.content_hash:
+            inv.items.all().delete()
+            inv.state = Inventory.State.UNCHANGED
+            inv.save(update_fields=["state"])
+            return inv, "строки как в актуальной описи узла"
+    return inv, ""

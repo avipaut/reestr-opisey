@@ -126,3 +126,54 @@ details.list[open] > summary { border-bottom: 1px solid var(--line); }
   .actionbar { left: 0; padding: 10px 16px; }
   .tbl-wrap { max-height: none; }
 }
+
+/* выбор узла (nodes.js) */
+.filters label.wide { flex: 1 1 260px; min-width: 220px; }
+.filters label.check { flex-direction: row; align-items: center; gap: 6px; height: 36px; }
+.np { position: relative; min-width: 0; }
+.np-field { display: flex; gap: 6px; align-items: center; }
+.np-input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: 6px; font: inherit; }
+.np-clear { border: 0; background: none; font-size: 18px; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
+.np-pop { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); background: #fff; border: 1px solid var(--line-2);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(20,30,45,.14); max-height: 360px; overflow: auto; min-width: 280px; }
+.actionbar .np-pop { top: auto; bottom: calc(100% + 4px); }
+.np-crumbs { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+.np-crumbs:empty { display: none; }
+.np-crumbs button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font: inherit; }
+.np-crumbs .np-take { margin-left: 8px; border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 6px; }
+.np-list { list-style: none; margin: 0; padding: 4px 0; }
+.np-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; min-height: 40px; }
+.np-list li.on, .np-list li:hover { background: var(--accent-soft); }
+.np-pick { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.np-pick b { font-weight: 500; overflow-wrap: anywhere; }
+.np-pick .muted { font-size: 12px; overflow-wrap: anywhere; }
+.np-count { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.np-in { border: 1px solid var(--line-2); background: #fff; border-radius: 4px; width: 28px; height: 28px; cursor: pointer; }
+.np-msg:not(:empty) { padding: 8px 10px; }
+
+/* дерево учреждений */
+.split { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.tree-card { position: sticky; top: 12px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+.tree-card > .pad { border-bottom: 1px solid var(--line); }
+ul.tree, ul.tree ul { list-style: none; margin: 0; padding: 0; }
+ul.tree { overflow: auto; padding: 6px 0; }
+ul.tree ul { padding-left: 18px; }
+.tree-row { display: flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px 0 6px; }
+.tree-row:hover { background: #f5f8fc; }
+li.on > .tree-row { background: var(--accent-soft); }
+li.on > .tree-row a { font-weight: 600; }
+.tree-tog { width: 24px; height: 24px; flex: none; border: 0; background: none; color: var(--ink-3); cursor: pointer; }
+.tree-row a { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.tree-count { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tree-empty { padding: 8px 12px; }
+.split-main > .crumbs { margin-top: 2px; }
+
+.pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+ul.plain { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; }
+code { font-family: Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } .tree-card { position: static; max-height: 420px; } }
+.filters select { max-width: 260px; }
+table.data th { white-space: nowrap; }
+/* длинный текст в узком столбце — одной строкой с многоточием, полностью — в подсказке */
+table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -8,6 +8,7 @@ normalizovannaya-opis-format; ТЗ — tz-reestr-opisey (1.5–1.8, 2, 3, 4).
 """
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from apps.orgs.models import Node
@@ -169,13 +170,17 @@ class Item(models.Model):
     user_mark = models.TextField("отметка пользователя", blank=True)
     user_mark_date = models.DateField("дата отметки (из шапки)", null=True, blank=True)
     name_fill = models.CharField("заливка наименования", max_length=8, blank=True)
+    # Строка поиска: наименование, инв. номер, модель — нижний регистр, «ё» = «е».
+    # Поиск не зависит от локали базы (в локали C PostgreSQL не меняет регистр кириллицы).
+    search = models.TextField("строка поиска", blank=True, editable=False)
     row_hash = models.CharField("хеш строки", max_length=32)
     extra = models.JSONField("столбцы вне схемы", default=dict, blank=True)
 
     class Meta:
         verbose_name = "позиция"
         verbose_name_plural = "позиции"
-        indexes = [models.Index(fields=["inventory", "sheet", "row_no"], name="item_inv_sheet_row")]
+        indexes = [models.Index(fields=["inventory", "sheet", "row_no"], name="item_inv_sheet_row"),
+                   GinIndex(fields=["search"], opclasses=["gin_trgm_ops"], name="item_search_trgm")]
 
     def __str__(self):
         return self.name[:80]

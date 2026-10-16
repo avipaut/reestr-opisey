@@ -1,0 +1,3 @@
+<div class="np" data-name="{{ np_name|default:'node' }}" data-value="{{ np_node.pk|default:'' }}" data-label="{{ np_node.trail|default:'' }}" {% if np_submit %}data-submit{% endif %} {% if np_placeholder %}data-placeholder="{{ np_placeholder }}"{% endif %}>
+  <select name="{{ np_name|default:'node' }}"><option value="">все</option>{% if np_node %}<option value="{{ np_node.pk }}" selected>{{ np_node.trail }}</option>{% endif %}</select>
+</div>

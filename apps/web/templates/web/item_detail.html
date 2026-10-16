@@ -1,0 +1,27 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}{{ it.name|truncatechars:60 }} — Реестр описей{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'inventories' %}">Описи</a><span class="sep">/</span><a href="{% url 'inventory_detail' it.inventory_id %}">{{ it.inventory.node.trail|default:it.inventory.source_file.name }}</a><span class="sep">/</span><span>{{ it.sheet }}, строка {{ it.row_no }}</span></div>
+<h1>{{ it.name }}</h1>
+<p class="sub">Инв. № {{ it.inv_no|default:"—" }} · код {{ it.recommended_code|default:"—" }} · {{ it.status|default:"без статуса" }}{% if it.status_doc and it.status.name != it.status_doc %} (по описи: {{ it.status_doc }}){% endif %}</p>
+
+{% if perms.inventories.change_item and it.inventory.state == 'accepted' %}
+<form class="filters card pad" method="post" action="{% url 'item_status' it.pk %}">{% csrf_token %}
+  <label>Статус<select name="status">{% for s in statuses %}<option value="{{ s.pk }}" {% if s.pk == it.status_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+  <label class="wide">Комментарий к правке<input type="text" name="comment" maxlength="2000"></label>
+  <button class="btn primary" type="submit">Изменить статус</button>
+  <span class="muted">Правка — в журнал; свод пересчитывается сразу. Новая версия описи придёт со своими статусами.</span>
+</form>
+{% endif %}
+
+<div class="card"><h2>Все поля позиции</h2>
+  <dl class="kv pad">{% for label, v in fields %}<dt>{{ label|capfirst }}</dt><dd>{% if v is None or v == "" %}<span class="muted">—</span>{% elif v is True %}да{% elif v is False %}нет{% else %}{{ v }}{% endif %}</dd>{% endfor %}
+  {% for k, v in extra.items %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+</div>
+
+<div class="card"><h2>Правки статуса</h2>
+  {% if changes %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Когда</th><th>Кто</th><th>Было</th><th>Стало</th><th>Комментарий</th></tr></thead>
+  <tbody>{% for c in changes %}<tr><td class="nw">{{ c.at|date:"d.m.Y H:i" }}</td><td>{{ c.by|default:"—" }}</td><td>{{ c.old|default:"—" }}</td><td>{{ c.new }}</td><td class="wrap">{{ c.comment }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty">Статус не менялся — как в описи.</div>{% endif %}
+</div>
+{% endblock %}

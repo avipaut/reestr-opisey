@@ -1,0 +1,29 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}{{ inv.node.label|default:inv.source_file.name }} — Реестр описей{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'inventories' %}">Описи</a><span class="sep">/</span><span>{{ inv.node.trail|default:"узел не указан" }}</span></div>
+<h1>{{ inv.node.label|default:inv.source_file.name }}</h1>
+<p class="sub">{{ inv.source_file.name }} · <span class="tag {% if inv.is_current %}ok{% elif inv.state == 'accepted' %}{% else %}warn{% endif %}">{% if inv.is_current %}актуальная{% elif inv.state == 'accepted' %}прежняя версия{% else %}{{ inv.get_state_display }}{% endif %}</span>
+  {% if inv.valid_from %} · действует с {{ inv.valid_from|date:"d.m.Y H:i" }}{% if inv.valid_to %} по {{ inv.valid_to|date:"d.m.Y H:i" }}{% endif %}{% endif %}
+  {% if inv.source_date %} · дата источника {{ inv.source_date|date:"d.m.Y" }}{% endif %}</p>
+
+{% if versions|length > 1 %}
+<div class="card"><details class="list"><summary>Версии описи узла <span class="muted">{{ versions|length }}</span></summary>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>Действует с</th><th>по</th><th>Файл</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th></th></tr></thead>
+  <tbody>{% for v in versions %}<tr><td class="nw">{{ v.valid_from|date:"d.m.Y H:i" }}</td><td class="nw">{{ v.valid_to|date:"d.m.Y H:i"|default:"по сей день" }}</td>
+    <td class="wrap">{% if v.pk == inv.pk %}<b>{{ v.source_file.name }}</b>{% else %}<a href="{% url 'inventory_detail' v.pk %}">{{ v.source_file.name }}</a>{% endif %}</td>
+    <td class="n">{{ v.rows|num }}</td><td class="n">{{ v.qty|num }}</td><td class="n">{{ v.cost_initial|num:2 }}</td>
+    <td><a href="{% url 'review_detail' v.pk %}">сравнение с предыдущей</a></td></tr>{% endfor %}</tbody></table></div>
+</details></div>
+{% endif %}
+
+{% with hide_node=1 hide_date=1 %}{% include "web/_item_filters.html" %}{% endwith %}
+{% with qs=f.querystring %}{% include "web/_items_table.html" %}{% endwith %}
+
+{% if rules %}
+<div class="card"><details class="list"><summary>Правила описи <span class="muted">{{ rules|length }}</span></summary>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>Поле</th><th>Как заполнено</th></tr></thead>
+  <tbody>{% for r in rules %}<tr><td class="nw">{{ r.field }}</td><td class="wrap">{{ r.text }}</td></tr>{% endfor %}</tbody></table></div>
+</details></div>
+{% endif %}
+{% endblock %}

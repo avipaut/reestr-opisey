@@ -18,6 +18,7 @@ class Node(models.Model):
     level = models.PositiveSmallIntegerField("уровень", default=0, editable=False)
     # Путь кодов от учреждения: «/126/8/» — поддерево отбирается по началу пути.
     path = models.CharField("путь кодов", max_length=500, editable=False, db_index=True)
+    search = models.CharField("строка поиска", max_length=600, blank=True, editable=False)
     created_at = models.DateTimeField("создан", auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                                    on_delete=models.SET_NULL, related_name="+", verbose_name="кем создан")
@@ -55,6 +56,7 @@ class Node(models.Model):
         return " › ".join(reversed(parts))
 
     def save(self, *args, **kwargs):
+        self.search = " ".join(x for x in (self.code, self.name) if x).lower().replace("ё", "е")
         part = self.code or f"#{self.pk or 'new'}"
         if self.parent_id:
             self.level = self.parent.level + 1

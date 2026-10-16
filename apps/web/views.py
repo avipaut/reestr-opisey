@@ -89,9 +89,8 @@ def review_detail(request, pk):
                if inv.node_id else None)
     cmp = compare(inv, current) if inv.state in (Inventory.State.PENDING, Inventory.State.ACCEPTED) else None
     totals_before = (current.rows, current.qty, current.cost_initial) if current else None
-    nodes = Node.objects.order_by("path") if not inv.node_resolved else None
     return render(request, "web/review_detail.html", {
-        "inv": inv, "current": current, "cmp": cmp, "totals_before": totals_before, "nodes": nodes,
+        "inv": inv, "current": current, "cmp": cmp, "totals_before": totals_before,
         "reconciliations": inv.reconciliations.all(), "nav": "review"})
 
 
@@ -149,8 +148,7 @@ def stats_codes(request):
                              ["Итого", *totals, grand], _params(request, at, node, "Свод по кодам"))
     return render(request, "web/stats_codes.html", {
         "statuses": statuses, "table": table, "totals": totals, "grand": grand, "date": date_raw,
-        "asof": at, "node": node, "crumbs": _crumbs(node), "roots": Node.objects.filter(parent=None).order_by("path"),
-        "children": node.children.order_by("path") if node else None, "nav": "codes"})
+        "asof": at, "node": node, "crumbs": _crumbs(node), "nav": "codes"})
 
 
 @login_required

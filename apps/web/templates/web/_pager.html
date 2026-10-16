@@ -1,0 +1,7 @@
+{% load num %}{% if page.paginator.num_pages > 1 %}
+<nav class="pager" aria-label="Страницы">
+  <span class="muted">{{ page.start_index|num }}–{{ page.end_index|num }} из {{ page.paginator.count|num }}</span>
+  {% if page.has_previous %}<a class="btn" href="?{{ qs }}&page=1">« первая</a><a class="btn" href="?{{ qs }}&page={{ page.previous_page_number }}">‹ назад</a>{% endif %}
+  <span>стр. {{ page.number }} из {{ page.paginator.num_pages|num }}</span>
+  {% if page.has_next %}<a class="btn" href="?{{ qs }}&page={{ page.next_page_number }}">вперёд ›</a><a class="btn" href="?{{ qs }}&page={{ page.paginator.num_pages }}">последняя »</a>{% endif %}
+</nav>{% endif %}

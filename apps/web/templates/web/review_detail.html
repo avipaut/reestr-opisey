@@ -64,7 +64,7 @@
 {% if inv.state == 'pending' and perms.inventories.change_inventory %}
 <form class="actionbar" method="post" action="{% url 'review_decide' inv.pk %}">{% csrf_token %}
   {% if not inv.node_resolved %}
-  <label class="grow">Узел <select name="node" required><option value="">— выберите узел —</option>{% for n in nodes %}<option value="{{ n.pk }}">{{ n.path }} {{ n.name }}</option>{% endfor %}</select></label>
+  <label class="grow">Узел — к чему относится опись{% with np_placeholder="учреждение или подвед; нет в списке — «Учреждения» → добавить" %}{% include "web/_node_picker.html" %}{% endwith %}</label>
   {% else %}<div class="grow muted">{% if current %}Прежняя версия уйдёт в историю.{% else %}Первая версия узла.{% endif %} Статусы — из этой описи.</div>{% endif %}
   <button class="btn primary" type="submit" name="action" value="accept">Принять</button>
   <details><summary class="btn danger">Отклонить…</summary><span class="muted">Позиции будут удалены, файл не предложится снова.</span><button class="btn danger" type="submit" name="action" value="reject" formnovalidate>Отклонить</button></details>

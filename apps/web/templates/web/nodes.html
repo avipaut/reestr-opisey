@@ -1,0 +1,49 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Учреждения — Реестр описей{% endblock %}
+{% block content %}
+<h1>Учреждения</h1>
+<p class="sub">Учреждение → подвед → подвед подведа. Узлы создаются при приёме описи по папкам и вручную здесь.</p>
+<div class="split">
+  <div class="card tree-card">
+    <div class="pad">{% with np_name="node" np_submit=1 np_placeholder="найти: код или часть названия" %}<form method="get">{% include "web/_node_picker.html" %}</form>{% endwith %}</div>
+    <ul class="tree" role="tree" aria-label="Дерево учреждений" data-selected="{{ sel.pk|default:'' }}" data-open="{{ open_ids|join:',' }}"></ul>
+  </div>
+  <div class="split-main">
+    {% if sel %}
+    <div class="crumbs"><a href="?">Все учреждения</a>{% for c in crumbs %}<span class="sep">›</span>{% if forloop.last %}<span>{{ c.label }}</span>{% else %}<a href="?node={{ c.pk }}">{{ c.label }}</a>{% endif %}{% endfor %}</div>
+    <div class="card"><h2>{{ sel.label }}</h2>
+      <dl class="kv pad">
+        <dt>Уровень</dt><dd>{% if sel.level == 0 %}учреждение{% elif sel.level == 1 %}подвед{% else %}подвед {{ sel.level }}-го уровня{% endif %}</dd>
+        <dt>Код</dt><dd>{{ sel.code|default:"—" }}</dd>
+        <dt>Наименование</dt><dd>{{ sel.name|default:"—" }}</dd>
+        <dt>Актуальная опись</dt><dd>{% if current %}<a href="{% url 'inventory_detail' current.pk %}">{{ current.source_file.name }}</a> · {{ current.rows|num }} поз. · с {{ current.valid_from|date:"d.m.Y" }}{% if versions > 1 %} · версий {{ versions }}{% endif %}{% else %}<span class="muted">нет</span>{% endif %}</dd>
+        <dt>Описей в поддереве</dt><dd>{{ sub_inv|num }}</dd>
+        <dt>Смотреть</dt><dd><a href="{% url 'stats_codes' %}?node={{ sel.pk }}">свод по кодам</a> · <a href="{% url 'stats_orgs' %}?parent={{ sel.pk }}">код × подвед</a> · <a href="{% url 'items_search' %}?node={{ sel.pk }}">позиции</a> · <a href="{% url 'inventories' %}?node={{ sel.pk }}">описи</a></dd>
+      </dl>
+    </div>
+    {% if perms.orgs.change_node %}
+    <div class="card"><h2>Код и наименование</h2>
+      <form class="filters pad" method="post" action="{% url 'node_edit' sel.pk %}">{% csrf_token %}
+        <label>Код<input type="text" name="code" value="{{ sel.code }}" size="8"></label>
+        <label class="wide">Наименование<input type="text" name="name" value="{{ sel.name }}"></label>
+        <button class="btn" type="submit">Сохранить</button>
+        <span class="muted">Новый код меняет путь узла и всех подведов; описи остаются при узле.</span>
+      </form>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% if perms.orgs.add_node %}
+    <div class="card"><h2>{% if sel %}Добавить подвед в «{{ sel.label }}»{% else %}Добавить учреждение{% endif %}</h2>
+      <form class="filters pad" method="post" action="{% url 'node_add' %}">{% csrf_token %}
+        <input type="hidden" name="parent" value="{{ sel.pk|default:'' }}">
+        <label>Код<input type="text" name="code" size="8" placeholder="код"></label>
+        <label class="wide">Наименование<input type="text" name="name" placeholder="наименование"></label>
+        <button class="btn primary" type="submit">Добавить</button>
+        {% if sel %}<a class="btn" href="?">Добавить учреждение верхнего уровня</a>{% endif %}
+      </form>
+    </div>
+    {% endif %}
+    {% if not sel %}<div class="card"><div class="empty"><b>Выберите узел в дереве</b>Или найдите по коду и названию — в результатах виден весь путь.</div></div>{% endif %}
+  </div>
+</div>
+{% endblock %}
