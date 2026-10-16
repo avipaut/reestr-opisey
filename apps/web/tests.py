@@ -17,6 +17,7 @@ from apps.inventories.models import Inventory
 from apps.imports.models import ScanRun
 
 
+@override_settings(AUTO_ACCEPT=False)
 class ScreensTests(TransactionTestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
@@ -61,6 +62,7 @@ class ScreensTests(TransactionTestCase):
         self.assertIn("/accounts/login/", r["Location"])
 
 
+@override_settings(AUTO_ACCEPT=False)
 class SearchAndNodesTests(TransactionTestCase):
     """Поиск по-русски без учёта регистра — не зависит от локали базы
     (в локали C PostgreSQL не меняет регистр кириллицы: «насос» не находил «Насос»)."""
@@ -100,7 +102,7 @@ class SearchAndNodesTests(TransactionTestCase):
             orgs.add_node(top, "8", "дубль кода")
 
 
-@override_settings(SCAN_SYNC=True)
+@override_settings(SCAN_SYNC=True, AUTO_ACCEPT=False)
 class FolderImportTests(TransactionTestCase):
     """Выбранная папка обходится рекурсивно; её подпапки — учреждения и подведы."""
 

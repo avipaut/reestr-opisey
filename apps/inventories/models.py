@@ -117,8 +117,9 @@ class Inventory(models.Model):
         verbose_name = "опись"
         verbose_name_plural = "описи"
         constraints = [
-            models.UniqueConstraint(fields=["node"], condition=models.Q(is_current=True),
-                                    name="one_current_inventory_per_node"),
+            # Актуальная версия — одна на книгу (путь); у узла их может быть несколько.
+            models.UniqueConstraint(fields=["source_file"], condition=models.Q(is_current=True),
+                                    name="one_current_inventory_per_file"),
         ]
 
     def __str__(self):

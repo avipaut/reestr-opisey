@@ -23,7 +23,9 @@ from django.utils import timezone
 from apps.inventories.models import Inventory, Item, ObjectType, Reconciliation, Rule, SourceFile, Status
 from apps.orgs.folders import parse_path
 from apps.orgs.models import FolderMapping, Node
+from apps.orgs.services import ensure_path
 from apps.stats import services as stats
+from apps.stats.models import VersionStat
 
 from .models import ScanRun
 from .reader import parse_book
@@ -47,7 +49,7 @@ def _walk(root, exts):
                 yield os.path.join(cur, name)
 
 
-PROGRESS = ["found", "unchanged", "moved", "parsed", "pending", "same_content", "errors", "stage", "to_parse",
+PROGRESS = ["found", "unchanged", "moved", "parsed", "pending", "accepted", "same_content", "errors", "stage", "to_parse",
             "current"]
 
 
@@ -146,13 +148,22 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 notes.append(f"не записана: {sf.path}: {type(e).__name__}: {e}")
                 run.errors += 1
                 continue
+            # База не для ручной работы (решение пользователя 16.10.2026): опись с узлом
+            # принимается сразу, без просмотра.
+            if inv.state == Inventory.State.PENDING and inv.node_id and settings.AUTO_ACCEPT:
+                try:
+                    inv = accept(inv)
+                except Exception as e:
+                    notes.append(f"не принята: {sf.path}: {e}")
             if inv.state == Inventory.State.ERROR:
                 run.errors += 1
                 notes.append(f"{sf.path}: {inv.error}")
             elif inv.state == Inventory.State.UNCHANGED:
                 run.same_content += 1
-            else:
+            elif inv.state == Inventory.State.PENDING:
                 run.pending += 1
+            else:
+                run.accepted += 1
         run.state = ScanRun.State.DONE_ERRORS if run.errors else ScanRun.State.DONE
     except Exception as e:
         log.exception("обход прерван")
@@ -198,13 +209,11 @@ def _resolve_node(rel_folder):
     if mapped:
         return mapped.node, [], True
     parts = [p for p in rel_folder.replace("/", "\\").split("\\") if p]
-    if not parts:
-        return None, [], False
-    proposed, ok = parse_path(parts)
-    if not ok:
-        return None, proposed, False
-    path = "/" + "/".join(p["code"] for p in proposed) + "/"
-    return Node.objects.filter(path=path).first(), proposed, True
+    proposed = parse_path(parts)
+    if not proposed:
+        return None, [], False  # книга в корне выбранной папки — узел укажет пользователь
+    # Узлы создаются сразу при обходе: дерево видно до приёма описей.
+    return ensure_path(proposed), proposed, True
 
 
 def _stage(sf, p) -> Inventory:
@@ -214,7 +223,8 @@ def _stage(sf, p) -> Inventory:
                 proposed_path=proposed, node_resolved=resolved)
     if p.get("error"):
         return Inventory.objects.create(state=Inventory.State.ERROR, error=p["error"], **base)
-    current = Inventory.objects.filter(node=node, is_current=True).first() if node else None
+    # Версии — по файлу: у узла бывает несколько описей сразу (бюджет, спецсчёт).
+    current = Inventory.objects.filter(source_file=sf, is_current=True).first()
     if current and current.content_hash == p["content_hash"]:
         return Inventory.objects.create(state=Inventory.State.UNCHANGED, content_hash=p["content_hash"],
                                         rows=len(p["items"]), **base)
@@ -262,17 +272,7 @@ def _ensure_node(inv, user):
         return inv.node
     if not inv.node_resolved or not inv.proposed_path:
         raise ValueError("узел не определён — укажите узел")
-    parent = None
-    for part in inv.proposed_path:
-        node = Node.objects.filter(parent=parent, code=part["code"]).first()
-        if node is None:
-            node = Node(parent=parent, code=part["code"], name=part["name"], created_by=user)
-            node.save()
-        elif not node.name and part["name"]:
-            node.name = part["name"]
-            node.save(update_fields=["name"])
-        parent = node
-    return parent
+    return ensure_path(inv.proposed_path, user)
 
 
 @transaction.atomic
@@ -288,7 +288,8 @@ def accept(inv: Inventory, user=None, node: Node = None, at=None) -> Inventory:
     else:
         inv.node = _ensure_node(inv, user)
     now = at or timezone.now()  # at — только для тестового набора с историей
-    prev = Inventory.objects.select_for_update().filter(node=inv.node, is_current=True).first()
+    # Прежняя версия — та же книга (тот же путь); другие описи узла остаются актуальными.
+    prev = Inventory.objects.select_for_update().filter(source_file=inv.source_file, is_current=True).first()
     if prev:
         prev.is_current, prev.valid_to = False, now
         prev.save(update_fields=["is_current", "valid_to"])
@@ -310,3 +311,42 @@ def reject(inv: Inventory, user=None) -> Inventory:
     inv.state, inv.decided_at, inv.decided_by = Inventory.State.REJECTED, timezone.now(), user
     inv.save(update_fields=["state", "decided_at", "decided_by"])
     return inv
+
+
+# ------------------------------------------------------------------ массовый приём
+
+def accept_many(ids, user=None, job=None):
+    """Принять описи по одной (каждая — своя транзакция: сбой одной не откатывает
+    остальные); ход — в AcceptJob. Узел должен быть определён."""
+    from .models import AcceptJob
+    job = job or AcceptJob.objects.create(by=user, total=len(ids))
+    notes = []
+    for n, pk in enumerate(ids, 1):
+        try:
+            accept(Inventory.objects.get(pk=pk), user=user)
+            job.done += 1
+        except Exception as e:  # отказ одной — в журнал, а не тишина
+            job.failed += 1
+            if len(notes) < 300:
+                notes.append(f"{pk}: {e}")
+        if n % 25 == 0:
+            job.save(update_fields=["done", "failed"])
+    job.finished_at, job.log = timezone.now(), "\n".join(notes)
+    job.save()
+    return job
+
+
+def reassign_nodes():
+    """Разложить по узлам описи, у которых узла нет: узел — по пути папки книги
+    (без повторного чтения файлов). Возвращает (разложено, осталось без узла)."""
+    done = left = 0
+    qs = Inventory.objects.filter(node__isnull=True).exclude(state=Inventory.State.REJECTED).select_related("source_file")
+    for inv in qs.iterator(chunk_size=500):
+        node, proposed, resolved = _resolve_node(inv.source_file.rel_folder)
+        if node is None:
+            left += 1
+            continue
+        Inventory.objects.filter(pk=inv.pk).update(node=node, node_resolved=True, proposed_path=proposed)
+        VersionStat.objects.filter(inventory_id=inv.pk).update(node=node)
+        done += 1
+    return done, left

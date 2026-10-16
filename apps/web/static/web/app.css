@@ -193,3 +193,7 @@ table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; te
 .fs-msg:not(:empty) { padding: 8px 12px; border-top: 1px solid var(--line); }
 .upbar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 10px 0; }
 .upbar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.bulkbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-bottom: 1px solid var(--line); }
+.bulkbar .grow { flex: 1; }
+table.data th.cb, table.data td.cb { width: 36px; padding-right: 0; }
+.jobline { margin-bottom: 16px; }

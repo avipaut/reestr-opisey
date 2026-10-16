@@ -1,25 +1,45 @@
-"""Узел по пути папки (ТЗ 1.4, 1.8): «126» → код 126; «8. Ошское ДНВТ» →
-код 8, имя «Ошское ДНВТ». Разбор терпимый: «<код>. <имя>», «<код>», «<код> <имя>»."""
+"""Узел по пути папки (ТЗ 1.4, 1.8).
+
+Решение пользователя 16.10.2026: учреждения и подведы хранятся как коды и
+наименования, «если они есть»: «126» — код без имени, «8. Ошское ДНВТ» —
+код и имя, «ГУ Дирекция по управлению…» — имя без кода. Любая папка —
+узел, кроме служебных («обработанные», «архив», годы): книги в служебной
+папке относятся к узлу папки выше («Узлы не распознало. исправляй. Раскидай
+по узлам»).
+"""
 
 import re
 
-_RX = re.compile(r"^\s*(\d+)\s*(?:[.)\-–—]\s*|\s+|$)(.*)$")
+from django.conf import settings
+
+_CODE = re.compile(r"^\s*(\d{1,6})\s*(?:[.)\-–—]\s*|\s+|$)(.*)$")
+_YEAR = re.compile(r"^\s*(19|20)\d{2}\s*(г\.?|год|года)?\s*$", re.I)
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower().replace("ё", "е"))
+
+
+def is_service(name: str) -> bool:
+    n = _norm(name)
+    return bool(_YEAR.match(n)) or n in {_norm(x) for x in getattr(settings, "SERVICE_FOLDERS", [])}
 
 
 def parse_folder(name: str):
-    """(код, имя) или (None, имя) — если кода нет."""
-    m = _RX.match(name)
+    """(код, имя): «8. Ошское ДНВТ» → ('8', 'Ошское ДНВТ'); «126» → ('126', '');
+    «ГУ Дирекция» → ('', 'ГУ Дирекция')."""
+    m = _CODE.match(name)
     if not m:
-        return None, name.strip()
+        return "", name.strip()
     return m.group(1), m.group(2).strip()
 
 
 def parse_path(parts):
-    """Список частей пути → [{'code', 'name', 'folder'}]; ok=False, если у какой-то части нет кода."""
-    out, ok = [], True
+    """Части пути от корня → [{'code', 'name', 'folder'}] без служебных папок."""
+    out = []
     for p in parts:
+        if is_service(p):
+            continue
         code, name = parse_folder(p)
-        if code is None:
-            ok = False
-        out.append({"code": code or "", "name": name, "folder": p})
-    return out, ok
+        out.append({"code": code, "name": name, "folder": p})
+    return out

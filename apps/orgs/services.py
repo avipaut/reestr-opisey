@@ -60,3 +60,28 @@ def subtree_counts(parent):
             out[cid][0] += 1
             out[cid][1] += n
     return {i: tuple(out[i]) for i, _ in children}
+
+
+def _key(name):
+    return " ".join((name or "").lower().replace("ё", "е").split())
+
+
+def ensure_path(parts, user=None):
+    """Узел по частям пути [{code, name}] — найти или создать каждый уровень.
+    С кодом — узел узнаётся по коду среди детей родителя (имя дописывается,
+    если его не было); без кода — по имени (без учёта регистра и пробелов)."""
+    parent = None
+    for p in parts:
+        code, name = p.get("code", ""), p.get("name", "")
+        if code:
+            node = Node.objects.filter(parent=parent, code=code).first()
+        else:
+            node = Node.objects.filter(parent=parent, code="", search=_key(name)).first()
+        if node is None:
+            node = Node(parent=parent, code=code, name=name, created_by=user)
+            node.save()
+        elif code and not node.name and name:
+            node.name = name
+            node.save()
+        parent = node
+    return parent

@@ -22,6 +22,7 @@ class ScanRun(models.Model):
     moved = models.IntegerField("копии (то же содержимое уже есть)", default=0)
     parsed = models.IntegerField("разобрано", default=0)
     pending = models.IntegerField("ждут просмотра", default=0)
+    accepted = models.IntegerField("принято", default=0)
     same_content = models.IntegerField("строки как в актуальной", default=0)
     errors = models.IntegerField("ошибок", default=0)
     missing = models.IntegerField("пропали из папки", default=0)
@@ -42,3 +43,19 @@ class ScanRun(models.Model):
     @property
     def duration(self):
         return (self.finished_at - self.started_at).total_seconds() if self.finished_at else None
+
+
+class AcceptJob(models.Model):
+    """Массовый приём описей — фоновое задание с ходом (3 739 описей по одной не принимают)."""
+    started_at = models.DateTimeField("начало", auto_now_add=True)
+    finished_at = models.DateTimeField("конец", null=True, blank=True)
+    by = models.ForeignKey("auth.User", null=True, on_delete=models.SET_NULL, related_name="+", verbose_name="кто")
+    total = models.IntegerField("всего", default=0)
+    done = models.IntegerField("принято", default=0)
+    failed = models.IntegerField("не принято", default=0)
+    log = models.TextField("журнал", blank=True)
+
+    class Meta:
+        verbose_name = "массовый приём"
+        verbose_name_plural = "массовые приёмы"
+        ordering = ["-started_at"]

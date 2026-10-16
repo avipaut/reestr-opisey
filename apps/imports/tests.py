@@ -12,7 +12,7 @@ import time
 
 import openpyxl
 from openpyxl.styles import PatternFill
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.inventories.models import Inventory, Item, Status
@@ -71,6 +71,7 @@ BASE = [row("Компьютер", "31123130", "Основной список", i
         row("Стул", "31123110", "Не требует оценки", qty=3, inv="12", mark="красный")]
 
 
+@override_settings(AUTO_ACCEPT=False)
 class ReaderTests(TransactionTestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -109,6 +110,7 @@ class ReaderTests(TransactionTestCase):
         self.assertIn("не открывается", r["error"])
 
 
+@override_settings(AUTO_ACCEPT=False)
 class ScanTests(TransactionTestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
@@ -138,7 +140,7 @@ class ScanTests(TransactionTestCase):
         make_book(os.path.join(self.folder, "опись.xlsx"), BASE)
         self.scan()
         inv = Inventory.objects.get(state=Inventory.State.PENDING)
-        self.assertIsNone(inv.node, "узла ещё нет — создаётся при приёме")
+        self.assertEqual(inv.node.path, "/126/8/", "узлы создаются при обходе — дерево видно до приёма")
         services.accept(inv)
         node = Node.objects.get(path="/126/8/")
         self.assertEqual((node.code, node.name, node.parent.code), ("8", "Тестовое ДНВТ", "126"))
@@ -215,3 +217,26 @@ class ScanTests(TransactionTestCase):
         run = self.scan(workers=2)
         self.assertEqual((run.parsed, run.pending, run.errors), (3, 3, 0))
         self.assertEqual(Item.objects.count(), 12)
+
+
+@override_settings(AUTO_ACCEPT=True)
+class AutoAcceptTests(TransactionTestCase):
+    """База не для ручной работы: обход сам принимает описи, узлы — из имён папок,
+    служебная «обработанные» — не узел."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_scan_accepts_and_builds_nodes_from_folder_names(self):
+        make_book(os.path.join(self.root, "106", "1. Достук", "обработанные", "опись.xlsx"), BASE)
+        make_book(os.path.join(self.root, "1", "ГУ Дирекция", "опись.xlsx"), BASE + [row("Сервер", "31123130", "Резерв", inv="s1")])
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.accepted, run.pending), (2, 0))
+        paths = sorted(Node.objects.filter(inventories__is_current=True).values_list("path", flat=True))
+        self.assertEqual(paths[0], "/1/#" + str(Node.objects.get(name="ГУ Дирекция").pk) + "/")
+        self.assertEqual(Node.objects.get(code="1", parent__code="106").name, "Достук")
+        self.assertFalse(Node.objects.filter(name="обработанные").exists())
+        self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 11)

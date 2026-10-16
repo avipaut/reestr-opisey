@@ -1,29 +1,53 @@
 {% extends "web/base.html" %}{% load num %}
 {% block title %}На просмотр — Реестр описей{% endblock %}
 {% block content %}
+{% if job and not job.finished_at %}<meta http-equiv="refresh" content="3">{% endif %}
 <h1>Описи на просмотр</h1>
-<p class="sub">Новые и изменённые описи из сетевой папки. Принятая опись становится актуальной версией узла, прежняя уходит в историю.</p>
+<p class="sub">Новые и изменённые описи. Принятая опись становится актуальной версией своей книги; прежняя версия той же книги уходит в историю. Свод по кодам считается по принятым.</p>
+
+{% if job %}
+<div class="card pad jobline">
+  {% if job.finished_at %}
+    Последний массовый приём {{ job.finished_at|date:"d.m.Y H:i" }}: принято {{ job.done|num }}{% if job.failed %}, <span class="minus">не принято {{ job.failed|num }}</span>{% endif %} из {{ job.total|num }}.
+    {% if job.log %}<details><summary>почему не принято</summary><div class="muted">{{ job.log|linebreaksbr }}</div></details>{% endif %}
+  {% else %}
+    <b>Идёт приём:</b> {{ job.done|add:job.failed|num }} из {{ job.total|num }}
+    <div class="upbar"><div style="width: {% widthratio job.done|add:job.failed job.total 100 %}%"></div></div>
+    <span class="muted">Страница обновляется сама. Свод по кодам пополняется по ходу.</span>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="filters">
   <div class="muted">
     {% if last_run %}Последний обход: {{ last_run.started_at|date:"d.m.Y H:i" }} —
-      <span class="tag {% if last_run.state == 'done' %}ok{% elif last_run.state == 'running' %}{% else %}bad{% endif %}">{{ last_run.get_state_display }}</span>,
-      файлов {{ last_run.found|num }}, без изменений {{ last_run.unchanged|num }}, новых на просмотр {{ last_run.pending|num }}{% if last_run.errors %}, ошибок {{ last_run.errors|num }}{% endif %}
-    {% else %}Обходов ещё не было.{% endif %}
+      <span class="tag {% if last_run.state == 'done' %}ok{% elif not last_run.finished_at %}{% else %}bad{% endif %}">{% if last_run.finished_at %}{{ last_run.get_state_display }}{% else %}идёт{% endif %}</span>
+      · <a href="{% url 'scan_detail' last_run.pk %}">подробно</a>
+    {% else %}Обходов ещё не было — «Импорт».{% endif %}
   </div>
-  <form method="post" action="{% url 'scan_now' %}">{% csrf_token %}<button class="btn" type="submit">Проверить сейчас</button></form>
 </div>
 
+<form method="post" action="{% url 'review_bulk' %}" id="bulk">{% csrf_token %}
 <div class="card">
-  {% if pending %}
+  {% if page.object_list %}
+  <div class="bulkbar pad">
+    <b>Ждут просмотра: {{ pending_total|num }}</b>
+    <span class="muted">с узлом {{ with_node|num }}{% if without_node %} · без узла {{ without_node|num }}{% endif %}</span>
+    <span class="grow"></span>
+    {% if perms.inventories.change_inventory %}
+    <button class="btn" type="submit" name="action" value="selected" id="bulk-sel" disabled>Принять выбранные</button>
+    <button class="btn primary" type="submit" name="action" value="all" {% if not with_node or job and not job.finished_at %}disabled{% endif %}>Принять все с узлом ({{ with_node|num }})</button>
+    {% endif %}
+  </div>
   <div class="tbl-wrap">
     <table class="data">
-      <thead><tr><th>Файл</th><th>Узел</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th>Разобрана</th></tr></thead>
+      <thead><tr><th class="cb"><input type="checkbox" id="bulk-all" aria-label="Выбрать все на странице"></th><th>Файл</th><th>Узел</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th>Разобрана</th></tr></thead>
       <tbody>
-      {% for inv in pending %}
+      {% for inv in page.object_list %}
         <tr>
+          <td class="cb">{% if inv.node %}<input type="checkbox" name="ids" value="{{ inv.pk }}" aria-label="Выбрать">{% endif %}</td>
           <td class="wrap"><a href="{% url 'review_detail' inv.pk %}">{{ inv.source_file.name }}</a><div class="muted">{{ inv.source_file.rel_folder }}</div></td>
-          <td>{% if inv.node %}{{ inv.node.trail }}{% elif inv.node_resolved %}<span class="tag">будет создан</span> {% for p in inv.proposed_path %}{{ p.code }}{% if p.name %}. {{ p.name }}{% endif %}{% if not forloop.last %} › {% endif %}{% endfor %}{% else %}<span class="tag warn">укажите узел</span>{% endif %}</td>
+          <td class="clip" title="{{ inv.node.trail }}">{% if inv.node %}{{ inv.node.trail }}{% else %}<span class="tag warn">укажите узел</span>{% endif %}</td>
           <td class="n">{{ inv.rows|num }}</td>
           <td class="n">{{ inv.qty|num }}</td>
           <td class="n">{{ inv.cost_initial|num:2 }}</td>
@@ -33,18 +57,29 @@
       </tbody>
     </table>
   </div>
+  {% include "web/_pager.html" %}
   {% else %}
-  <div class="empty"><b>Новых описей нет</b>Обход проверяет папку по расписанию; «Проверить сейчас» — без ожидания.</div>
+  <div class="empty"><b>Новых описей нет</b>Описи появляются здесь после чтения папки на экране «Импорт».</div>
   {% endif %}
 </div>
+</form>
 
 {% if errors %}
-<div class="card">
-  <h2>Не разобраны</h2>
+<div class="card"><details class="list"><summary>Не разобраны <span class="muted">{{ errors_total|num }}</span></summary>
   <div class="tbl-wrap"><table class="data">
     <thead><tr><th>Файл</th><th>Причина</th><th>Когда</th></tr></thead>
     <tbody>{% for e in errors %}<tr><td class="wrap">{{ e.source_file.name }}<div class="muted">{{ e.source_file.rel_folder }}</div></td><td class="wrap">{{ e.error }}</td><td class="muted nw">{{ e.parsed_at|date:"d.m.Y H:i" }}</td></tr>{% endfor %}</tbody>
   </table></div>
-</div>
+</details></div>
 {% endif %}
+<script>
+(function () {
+  const all = document.getElementById("bulk-all"), btn = document.getElementById("bulk-sel");
+  if (!all) return;
+  const boxes = () => [...document.querySelectorAll("#bulk input[name=ids]")];
+  const sync = () => { const n = boxes().filter((b) => b.checked).length; if (btn) { btn.disabled = !n; btn.textContent = n ? `Принять выбранные (${n})` : "Принять выбранные"; } };
+  all.addEventListener("change", () => { boxes().forEach((b) => (b.checked = all.checked)); sync(); });
+  document.getElementById("bulk").addEventListener("change", (e) => { if (e.target.name === "ids") sync(); });
+})();
+</script>
 {% endblock %}

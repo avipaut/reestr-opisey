@@ -8,6 +8,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.core.paginator import Paginator
 from django.db.models import Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -62,8 +63,14 @@ def review_list(request):
                .select_related("source_file", "node").order_by("parsed_at"))
     errors = (Inventory.objects.filter(state=Inventory.State.ERROR)
               .select_related("source_file").order_by("-parsed_at")[:20])
+    from apps.imports.models import AcceptJob
+    page = Paginator(pending, 200).get_page(request.GET.get("page"))
     return render(request, "web/review_list.html", {
-        "pending": pending, "errors": errors, "last_run": ScanRun.objects.first(), "nav": "review"})
+        "page": page, "pending_total": page.paginator.count,
+        "with_node": Inventory.objects.filter(state=Inventory.State.PENDING, node__isnull=False).count(),
+        "without_node": Inventory.objects.filter(state=Inventory.State.PENDING, node__isnull=True).count(),
+        "errors": errors, "errors_total": Inventory.objects.filter(state=Inventory.State.ERROR).count(),
+        "last_run": ScanRun.objects.first(), "job": AcceptJob.objects.first(), "nav": "review"})
 
 
 @login_required
@@ -85,8 +92,7 @@ def scan_now(request):
 @login_required
 def review_detail(request, pk):
     inv = get_object_or_404(Inventory.objects.select_related("source_file", "node"), pk=pk)
-    current = (Inventory.objects.filter(node=inv.node, is_current=True).exclude(pk=inv.pk).first()
-               if inv.node_id else None)
+    current = Inventory.objects.filter(source_file=inv.source_file, is_current=True).exclude(pk=inv.pk).first()
     cmp = compare(inv, current) if inv.state in (Inventory.State.PENDING, Inventory.State.ACCEPTED) else None
     totals_before = (current.rows, current.qty, current.cost_initial) if current else None
     return render(request, "web/review_detail.html", {
@@ -200,3 +206,40 @@ def scan_detail(request, pk):
     found = (Inventory.objects.filter(parsed_at__gte=run.started_at, state=Inventory.State.PENDING)
              .select_related("source_file", "node").order_by("parsed_at")[:500]) if run.finished_at else []
     return render(request, "web/scan_detail.html", {"run": run, "found": found, "nav": "import"})
+
+
+@login_required
+@permission_required("inventories.change_inventory", raise_exception=True)
+@require_POST
+def review_bulk(request):
+    """«Принять выбранные» — сразу; «Принять все с узлом» — фоновым потоком с ходом."""
+    from apps.imports.models import AcceptJob
+    if AcceptJob.objects.filter(finished_at__isnull=True).exists():
+        messages.error(request, "Приём уже идёт — дождитесь конца")
+        return redirect("review_list")
+    qs = Inventory.objects.filter(state=Inventory.State.PENDING, node__isnull=False)
+    if request.POST.get("action") == "selected":
+        ids = [int(x) for x in request.POST.getlist("ids") if x.isdigit()]
+        ids = list(qs.filter(pk__in=ids).order_by("parsed_at").values_list("pk", flat=True))
+    else:
+        ids = list(qs.order_by("parsed_at").values_list("pk", flat=True))
+    if not ids:
+        messages.error(request, "Нечего принимать: нет описей с определённым узлом")
+        return redirect("review_list")
+    job = AcceptJob.objects.create(by=request.user, total=len(ids))
+    if getattr(settings, "SCAN_SYNC", False) or len(ids) <= 20:
+        imports.accept_many(ids, request.user, job)
+        messages.success(request, f"Принято: {job.done}" + (f", не принято: {job.failed}" if job.failed else ""))
+    else:
+        import threading
+        from django.db import connection
+
+        def work():
+            try:
+                imports.accept_many(ids, request.user, job)
+            finally:
+                connection.close()
+
+        threading.Thread(target=work, daemon=True).start()
+        messages.info(request, f"Приём {len(ids)} описей начат — ход вверху страницы")
+    return redirect("review_list")
