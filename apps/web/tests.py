@@ -204,3 +204,28 @@ class WipeAndStopTests(TransactionTestCase):
         self.client.force_login(self.admin)
         r = self.client.get(reverse("scan_detail", args=[9999]))
         self.assertRedirects(r, reverse("import_page"), fetch_redirect_response=False)
+
+
+@override_settings(AUTO_ACCEPT=True)
+class ScanExportTests(TransactionTestCase):
+    """Отчёт обхода в Excel: ошибки с путями и пропущенные."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "опись.xlsx"), BASE)
+        os.makedirs(os.path.join(self.root, "127"))
+        open(os.path.join(self.root, "127", "битая.xlsx"), "wb").write(b"x")
+        self.run = services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("a", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_export_has_errors_with_paths(self):
+        r = self.client.get(reverse("scan_export", args=[self.run.pk]))
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+        self.assertEqual(wb.sheetnames, ["Итог", "Ошибки", "Ошибки данных", "Пропущенные файлы", "Исключённые позиции"])
+        rows = list(wb["Ошибки"].iter_rows(min_row=2, values_only=True))
+        self.assertTrue(rows[0][0].endswith(os.path.join("127", "битая.xlsx")))
+        self.assertIn("не открывается", rows[0][1])
+
