@@ -36,7 +36,9 @@ def start(name):
 
 def main():
     os.makedirs(os.path.join(ROOT, "logs"), exist_ok=True)
-    for cmd in (["migrate", "--noinput"], ["collectstatic", "--noinput", "-v", "0"], ["setup_schedule"]):
+    # Расписания обхода нет: описи загружаются только вручную (решение пользователя
+    # 16.10.2026 «Расписание тоже вырубай. Все только вручную»). Включить — manage.py setup_schedule.
+    for cmd in (["migrate", "--noinput"], ["collectstatic", "--noinput", "-v", "0"]):
         subprocess.run([PY, "manage.py", *cmd], cwd=ROOT, check=True)
     procs = {n: start(n) for n in CMDS}
     print(f"Реестр описей: http://{HOST}:{PORT}/ (журналы — logs\). Остановить — Ctrl+C.", flush=True)
