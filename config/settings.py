@@ -57,6 +57,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Статика в боевом режиме — из самого приложения, без IIS (сервер на Windows, ТЗ 7.1).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -118,6 +120,13 @@ LOGOUT_REDIRECT_URL = "login"
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+# Тесты и разработка — без собранной статики (манифест нужен только боевому режиму).
+if DEBUG or "test" in __import__("sys").argv:
+    STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 
 # Папки с нормализованными описями (результат модуля коллеги).
 INVENTORY_ROOTS = env_list("INVENTORY_ROOTS", ";")

@@ -3,3 +3,4 @@ psycopg[binary]~=3.2
 openpyxl~=3.1
 django-q2~=1.8
 waitress~=3.0
+whitenoise~=6.7
