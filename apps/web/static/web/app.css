@@ -197,3 +197,7 @@ table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; te
 .bulkbar .grow { flex: 1; }
 table.data th.cb, table.data td.cb { width: 36px; padding-right: 0; }
 .jobline { margin-bottom: 16px; }
+/* группы кодов — суммы по началу кода, выделены как итоги */
+table.data tbody.groups tr.grp td { background: #f2f6fb; font-weight: 600; }
+table.data tbody.groups tr:last-child td { border-bottom: 2px solid var(--line-2); }
+table.data th.grp, table.data td.grp { background: #f2f6fb; font-weight: 600; }

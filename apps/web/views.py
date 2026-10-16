@@ -140,20 +140,24 @@ def _by_code_table(at, node):
         vals = [by[code].get(s, Decimal(0)) for s in statuses]
         table.append({"code": code or "—", "vals": vals, "total": sum(vals)})
     totals = [sum(t["vals"][i] for t in table) for i in range(len(statuses))]
-    return statuses, table, totals, sum(totals)
+    groups = [{"name": g.name, "prefixes": g.prefixes, "vals": v, "total": sum(v)} for g, v in
+              stats.group_sums(stats.code_groups(), {t["code"]: t["vals"] for t in table}, len(statuses))]
+    return statuses, table, totals, sum(totals), groups
 
 
 @login_required
 def stats_codes(request):
     at, date_raw = _when(request)
     node = _node(request)
-    statuses, table, totals, grand = _by_code_table(at, node)
+    statuses, table, totals, grand, groups = _by_code_table(at, node)
     if request.GET.get("export") == "xlsx":
-        rows = [[t["code"], *t["vals"], t["total"]] for t in table]
+        rows = ([[f"Σ {g['name']}", *g["vals"], g["total"]] for g in groups]
+                + [[t["code"], *t["vals"], t["total"]] for t in table])
         return xlsx_response("Свод по кодам", ["Код учёта", *statuses, "Итого"], rows,
-                             ["Итого", *totals, grand], _params(request, at, node, "Свод по кодам"))
+                             ["Итого", *totals, grand], _params(request, at, node, "Свод по кодам")
+                             + [(f"Σ {g['name']}", f"сумма кодов, начинающихся с {g['prefixes']}") for g in groups])
     return render(request, "web/stats_codes.html", {
-        "statuses": statuses, "table": table, "totals": totals, "grand": grand, "date": date_raw,
+        "statuses": statuses, "table": table, "totals": totals, "grand": grand, "groups": groups, "date": date_raw,
         "asof": at, "node": node, "crumbs": _crumbs(node), "nav": "codes"})
 
 
@@ -171,17 +175,24 @@ def stats_orgs(request):
     codes = sorted(codes, key=lambda c: (c in ("", "0"), c))
     has_kids = set(Node.objects.filter(parent__in=children).values_list("parent_id", flat=True))
     table = []
+    groups = stats.code_groups()
     for n in children:
         vals = [cells[n.pk].get(c, Decimal(0)) for c in codes]
-        table.append({"node": n, "vals": vals, "total": sum(vals), "drill": n.pk in has_kids})
+        gvals = [sum(cells[n.pk].get(c, 0) or 0 for c in codes if g.matches(c)) for g in groups]
+        table.append({"node": n, "vals": vals, "gvals": gvals, "total": sum(vals), "drill": n.pk in has_kids})
     table = [t for t in table if t["total"]] if request.GET.get("empty") != "1" else table
     totals = [sum(t["vals"][i] for t in table) for i in range(len(codes))]
+    gtotals = [sum(t["gvals"][i] for t in table) for i in range(len(groups))]
     if request.GET.get("export") == "xlsx":
-        rows = [[t["node"].label, *t["vals"], t["total"]] for t in table]
-        return xlsx_response("Код × учреждение", ["Учреждение", *[c or "—" for c in codes], "Итого"], rows,
-                             ["Итого", *totals, sum(totals)], _params(request, at, parent, "Код × учреждение"))
+        rows = [[t["node"].label, *t["gvals"], *t["vals"], t["total"]] for t in table]
+        return xlsx_response("Код × учреждение",
+                             ["Учреждение", *[f"Σ {g.name}" for g in groups], *[c or "—" for c in codes], "Итого"],
+                             rows, ["Итого", *gtotals, *totals, sum(totals)],
+                             _params(request, at, parent, "Код × учреждение")
+                             + [(f"Σ {g.name}", f"сумма кодов, начинающихся с {g.prefixes}") for g in groups])
     return render(request, "web/stats_orgs.html", {
         "codes": codes, "table": table, "totals": totals, "grand": sum(totals), "date": date_raw, "asof": at,
+        "groups": groups, "gtotals": gtotals,
         "parent": parent, "crumbs": _crumbs(parent), "nav": "orgs"})
 
 

@@ -55,3 +55,21 @@ def by_code_and_node(at, level_parent=None):
         for r in stats_at(at, n).values("code").annotate(qty=Sum("qty"), rows=Sum("rows")):
             out.append({"node": n, **r})
     return out
+
+
+def code_groups():
+    from .models import CodeGroup
+    return list(CodeGroup.objects.filter(is_active=True))
+
+
+def group_sums(groups, values_by_code, width):
+    """[(группа, [сумма по каждому из width значений])] — по кодам с нужным началом.
+    values_by_code: {код: [width значений]}."""
+    out = []
+    for g in groups:
+        acc = [0] * width
+        for code, vals in values_by_code.items():
+            if g.matches(code):
+                acc = [a + (v or 0) for a, v in zip(acc, vals)]
+        out.append((g, acc))
+    return out

@@ -34,3 +34,29 @@ class VersionStat(models.Model):
             models.Index(fields=["node", "valid_from"], name="stat_node_from"),
             models.Index(fields=["inventory", "valid_to"], name="stat_inv_open"),
         ]
+
+
+class CodeGroup(models.Model):
+    """Группа кодов — сумма по кодам, начинающимся с заданного (решение
+    пользователя 16.10.2026: «31122», «31123 12/13» — «чтобы коды, начинающиеся
+    с этого, автоматически считались суммой. Отдельными полями. Добавь в отчёты»)."""
+    name = models.CharField("название", max_length=100, unique=True)
+    prefixes = models.CharField("начала кодов (через запятую)", max_length=500,
+                                help_text="например: 3112312, 3112313")
+    order = models.PositiveSmallIntegerField("порядок", default=100)
+    is_active = models.BooleanField("в отчётах", default=True)
+
+    class Meta:
+        verbose_name = "группа кодов"
+        verbose_name_plural = "группы кодов"
+        ordering = ["order", "name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def prefix_list(self):
+        return [p.strip() for p in self.prefixes.replace(";", ",").split(",") if p.strip()]
+
+    def matches(self, code):
+        return any((code or "").startswith(p) for p in self.prefix_list)

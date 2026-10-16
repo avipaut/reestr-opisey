@@ -129,3 +129,29 @@ class FolderImportTests(TransactionTestCase):
         self.assertContains(self.client.get(reverse("scan_detail", args=[run.pk])), "Ждут просмотра")
         paths = sorted(p for inv in Inventory.objects.all() for p in ["/".join(x["code"] for x in inv.proposed_path)])
         self.assertEqual(paths, ["126/8", "127"])
+
+
+@override_settings(AUTO_ACCEPT=True)
+class CodeGroupsTests(TransactionTestCase):
+    """Группы кодов — сумма по началу кода, отдельными полями в отчётах."""
+
+    def setUp(self):
+        from apps.stats.models import CodeGroup
+        CodeGroup.objects.create(name="31123 12/13", prefixes="3112312, 3112313")
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "8. Тест", "опись.xlsx"), BASE)  # 31123130:1, 31123120:1, 31123110:3
+        services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_group_sum_in_reports(self):
+        r = self.client.get(reverse("stats_codes"))
+        g = r.context["groups"][0]
+        self.assertEqual((g["name"], g["total"]), ("31123 12/13", 2))
+        self.assertEqual(r.context["grand"], 5, "итог — по кодам, группы не двоят")
+        r = self.client.get(reverse("stats_orgs"))
+        self.assertEqual(r.context["gtotals"], [2])
+        wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("stats_orgs") + "?export=xlsx").content))
+        self.assertEqual(wb.active["B1"].value, "Σ 31123 12/13")

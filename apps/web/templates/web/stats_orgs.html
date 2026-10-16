@@ -17,11 +17,11 @@
 <div class="card">
   {% if table %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for c in codes %}<th class="n">{{ c|default:"—" }}</th>{% endfor %}<th class="n">Итого</th></tr></thead>
+    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}</th>{% endfor %}<th class="n">Итого</th></tr></thead>
     <tbody>{% for t in table %}<tr>
       <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&date={{ date }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
-      {% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td>Итого</td>{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
+      {% for v in t.gvals %}<td class="n grp {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td>Итого</td>{% for v in gtotals %}<td class="n grp">{{ v|num }}</td>{% endfor %}{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
   </table></div>
   {% else %}
   <div class="empty"><b>На эту дату данных нет</b>Здесь появятся учреждения с принятыми описями.</div>
