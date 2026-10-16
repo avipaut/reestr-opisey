@@ -153,7 +153,8 @@ def stats_codes(request):
     if request.GET.get("export") == "xlsx":
         rows = ([[f"Σ {g['name']}", *g["vals"], g["total"]] for g in groups]
                 + [[t["code"], *t["vals"], t["total"]] for t in table])
-        return xlsx_response("Свод по кодам", ["Код учёта", *statuses, "Итого"], rows,
+        rows = [[r[0] + (", шт." if r[0].startswith("Σ") else ""), *r[1:]] for r in rows]
+        return xlsx_response("Свод по кодам", ["Код учёта", *[f"{s}, шт." for s in statuses], "Итого, шт."], rows,
                              ["Итого", *totals, grand], _params(request, at, node, "Свод по кодам")
                              + [(f"Σ {g['name']}", f"сумма кодов, начинающихся с {g['prefixes']}") for g in groups])
     return render(request, "web/stats_codes.html", {
@@ -186,7 +187,7 @@ def stats_orgs(request):
     if request.GET.get("export") == "xlsx":
         rows = [[t["node"].label, *t["gvals"], *t["vals"], t["total"]] for t in table]
         return xlsx_response("Код × учреждение",
-                             ["Учреждение", *[f"Σ {g.name}" for g in groups], *[c or "—" for c in codes], "Итого"],
+                             ["Учреждение", *[f"Σ {g.name}, шт." for g in groups], *[f"{c or '—'}, шт." for c in codes], "Итого, шт."],
                              rows, ["Итого", *gtotals, *totals, sum(totals)],
                              _params(request, at, parent, "Код × учреждение")
                              + [(f"Σ {g.name}", f"сумма кодов, начинающихся с {g.prefixes}") for g in groups])
@@ -199,7 +200,8 @@ def stats_orgs(request):
 def _params(request, at, node, view):
     return [("Вид", view), ("На дату", timezone.localtime(at).strftime("%d.%m.%Y %H:%M")),
             ("Учреждение", " › ".join(n.label for n in _crumbs(node)) or "все"),
-            ("Величина", "количество (с учётом столбца «Количество»)"),
+            ("Величина", "количество, шт. — сумма столбца «Количество»; где в нём стояла сумма денег "
+                         "(равна цене или больше 1000) — 1 шт."),
             ("Кто выгрузил", request.user.get_username()),
             ("Когда", timezone.localtime().strftime("%d.%m.%Y %H:%M"))]
 

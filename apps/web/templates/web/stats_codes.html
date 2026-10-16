@@ -2,7 +2,8 @@
 {% block title %}Свод по кодам — Реестр описей{% endblock %}
 {% block content %}
 <h1>Свод по кодам учёта</h1>
-<p class="sub">Количество позиций актуальных описей (с учётом столбца «Количество») по рекомендуемому коду и статусу.</p>
+<p class="sub">Количество по рекомендуемому коду учёта и статусу.</p>
+<p class="measure"><b>Показано: количество, шт.</b> — сумма столбца «Количество» по позициям актуальных описей. Где в «Количестве» стояла сумма денег (равна цене или больше 1000), позиция считается за 1 шт.; исходное число — в карточке позиции. Σ — сумма кодов, начинающихся с указанного.</p>
 
 <form class="filters" method="get">
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
@@ -17,8 +18,8 @@
 <div class="card">
   {% if table %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Код учёта</th>{% for s in statuses %}<th class="n">{{ s }}</th>{% endfor %}<th class="n">Итого</th></tr></thead>
-    {% if groups %}<tbody class="groups">{% for g in groups %}<tr class="grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}"><td>Σ {{ g.name }}</td>{% for v in g.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ g.total|num }}</b></td></tr>{% endfor %}</tbody>{% endif %}
+    <thead><tr><th>Код учёта</th>{% for s in statuses %}<th class="n">{{ s }}, шт.</th>{% endfor %}<th class="n">Итого, шт.</th></tr></thead>
+    {% if groups %}<tbody class="groups">{% for g in groups %}<tr class="grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}"><td>Σ {{ g.name }}, шт.</td>{% for v in g.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ g.total|num }}</b></td></tr>{% endfor %}</tbody>{% endif %}
     <tbody>{% for t in table %}<tr><td>{{ t.code }}</td>{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
     <tfoot><tr><td>Итого</td>{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
   </table></div>

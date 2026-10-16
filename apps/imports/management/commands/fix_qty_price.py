@@ -1,0 +1,30 @@
+"""Позиции, где в «Количестве» не штуки, а сумма (равно первонач. или
+балансовой стоимости либо больше 1000), — за 1 шт.; исходное число — в
+пометке; своды затронутых описей пересчитываются. То же правило — у разбора
+новых книг (reader.py, QTY_MAX)."""
+
+from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.db.models import F, Q, Sum
+
+from apps.imports.reader import QTY_MAX
+from apps.inventories.models import Inventory, Item
+from apps.stats.services import rebuild_stats
+
+
+class Command(BaseCommand):
+    help = "Сумма в «Количестве» → 1 шт. с пометкой; пересчёт сводов"
+
+    def handle(self, *args, **opts):
+        bad = Item.objects.filter(~Q(qty__in=[0, 1]),
+                                  Q(qty=F("cost_initial")) | Q(qty=F("cost_balance")) | Q(qty__gt=QTY_MAX))
+        inv_ids = list(bad.values_list("inventory_id", flat=True).distinct())
+        n = 0
+        with transaction.atomic():
+            for it in bad.only("id", "qty").iterator(chunk_size=2000):
+                Item.objects.filter(pk=it.pk).update(qty=1, qty_note=f"в количестве {it.qty} — похоже на сумму, за 1 шт.")
+                n += 1
+            for inv in Inventory.objects.filter(pk__in=inv_ids):
+                rebuild_stats(inv)
+                Inventory.objects.filter(pk=inv.pk).update(qty=inv.items.aggregate(q=Sum("qty"))["q"] or 0)
+        self.stdout.write(f"исправлено позиций: {n}; пересчитано описей: {len(inv_ids)}")

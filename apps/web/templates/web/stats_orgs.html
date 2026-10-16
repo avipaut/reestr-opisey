@@ -2,7 +2,8 @@
 {% block title %}Код × учреждение — Реестр описей{% endblock %}
 {% block content %}
 <h1>Код учёта × учреждение</h1>
-<p class="sub">Количество по актуальным описям; у учреждения — сумма по нему и всем его подведам. Щелчок по названию — его подведы.</p>
+<p class="sub">Количество по коду учёта; у учреждения — сумма по нему и всем подведам. Щелчок по названию — его подведы.</p>
+<p class="measure"><b>Показано: количество, шт.</b> — сумма столбца «Количество» по позициям актуальных описей. Где в «Количестве» стояла сумма денег (равна цене или больше 1000), позиция считается за 1 шт.; исходное число — в карточке позиции. Σ — сумма кодов, начинающихся с указанного.</p>
 
 <form class="filters" method="get">
   {% if parent %}<input type="hidden" name="parent" value="{{ parent.pk }}">{% endif %}
@@ -17,7 +18,7 @@
 <div class="card">
   {% if table %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}</th>{% endfor %}<th class="n">Итого</th></tr></thead>
+    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}, шт.</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}, шт.</th>{% endfor %}<th class="n">Итого, шт.</th></tr></thead>
     <tbody>{% for t in table %}<tr>
       <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&date={{ date }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
       {% for v in t.gvals %}<td class="n grp {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>

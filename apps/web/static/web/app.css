@@ -201,3 +201,4 @@ table.data th.cb, table.data td.cb { width: 36px; padding-right: 0; }
 table.data tbody.groups tr.grp td { background: #f2f6fb; font-weight: 600; }
 table.data tbody.groups tr:last-child td { border-bottom: 2px solid var(--line-2); }
 table.data th.grp, table.data td.grp { background: #f2f6fb; font-weight: 600; }
+.measure { margin: -8px 0 14px; padding: 8px 12px; background: #f2f6fb; border-radius: 6px; color: var(--ink-2); max-width: 1100px; }

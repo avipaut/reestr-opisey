@@ -13,13 +13,13 @@
 <div class="tiles">
   <div class="tile"><div class="k">Описей</div><div class="v">{{ tot.n|num }}</div></div>
   <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
-  <div class="tile"><div class="k">Количество</div><div class="v">{{ tot.qty|num }}</div></div>
-  <div class="tile"><div class="k">Первонач. стоимость</div><div class="v">{{ tot.cost|num:2 }}</div></div>
+  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:2 }}</div></div>
 </div>
 <div class="card">
   {% if page.object_list %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Узел</th><th>Файл</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th>Дата источника</th><th>Принята</th><th class="n">Версий</th></tr></thead>
+    <thead><tr><th>Узел</th><th>Файл</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th>Дата источника</th><th>Принята</th><th class="n">Версий</th></tr></thead>
     <tbody>{% for inv in page.object_list %}<tr>
       <td><a href="{% url 'inventory_detail' inv.pk %}">{{ inv.node.trail }}</a></td>
       <td class="wrap muted">{{ inv.source_file.name }}{% if inv.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>

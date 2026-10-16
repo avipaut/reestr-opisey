@@ -73,3 +73,15 @@ def group_sums(groups, values_by_code, width):
                 acc = [a + (v or 0) for a, v in zip(acc, vals)]
         out.append((g, acc))
     return out
+
+
+def rebuild_stats(inventory):
+    """Пересчитать свод версии после исправления данных — с прежним сроком
+    действия (это исправление, а не новое событие истории)."""
+    old = list(VersionStat.objects.filter(inventory=inventory).values_list("valid_from", "valid_to").distinct())
+    VersionStat.objects.filter(inventory=inventory).delete()
+    for vf, vt in old:
+        open_stats(inventory, vf)
+        if vt:
+            VersionStat.objects.filter(inventory=inventory, valid_from=vf, valid_to__isnull=True).update(valid_to=vt)
+

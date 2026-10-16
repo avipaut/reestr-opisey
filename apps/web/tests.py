@@ -154,4 +154,4 @@ class CodeGroupsTests(TransactionTestCase):
         r = self.client.get(reverse("stats_orgs"))
         self.assertEqual(r.context["gtotals"], [2])
         wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("stats_orgs") + "?export=xlsx").content))
-        self.assertEqual(wb.active["B1"].value, "Σ 31123 12/13")
+        self.assertEqual(wb.active["B1"].value, "Σ 31123 12/13, шт.")

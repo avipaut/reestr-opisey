@@ -135,7 +135,7 @@ class Item(models.Model):
     name = models.TextField("основное средство", blank=True)
     account_code = models.CharField("код учёта", max_length=32, blank=True)
     qty = models.DecimalField("количество", max_digits=14, decimal_places=3, default=1)
-    qty_note = models.CharField("количество — пометка", max_length=40, blank=True)
+    qty_note = models.CharField("количество — пометка", max_length=150, blank=True)
     inv_no = models.CharField("инв. номер", max_length=200, blank=True)
     inv_key = models.CharField("ключ позиции", max_length=200, blank=True, db_index=True)
     cost_initial = models.DecimalField("первонач. стоимость", **MONEY)

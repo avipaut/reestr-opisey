@@ -54,6 +54,7 @@ REQUIRED = ("name", "status_doc", "recommended_code")
 MONEY = {"cost_initial", "depreciation", "cost_balance", "saldo_begin_initial", "saldo_begin_dep",
          "saldo_begin_balance", "income_initial", "income_dep", "expense_initial", "expense_dep"}
 CODES = {"account_code", "recommended_code", "org_code"}
+QTY_MAX = Decimal(1000)  # больше — не количество штук, а сумма
 USER_MARK = "отметка пользователя"  # «Отметка пользователя (02.10.2026)» — дата в шапке
 
 
@@ -175,6 +176,12 @@ def _list_sheet(ws, out_items, unknown_cols):
                 it[f] = text(v)
         q = money(get("qty"))
         it["qty"], it["qty_note"] = (q, "") if q is not None else ("1", "пусто — за 1" if not text(get("qty")) else "не число — за 1")
+        # Смотрим по количеству, не по ценам (решение пользователя 16.10.2026): в части описей
+        # в «Количестве» стоит цена — равна первонач. или балансовой стоимости → за 1 шт.
+        # Больше QTY_MAX — тоже не штуки (в отдельных описях весь столбец — суммы).
+        if q is not None and q not in ("0.00", "1.00") and (
+                q in (it.get("cost_initial"), it.get("cost_balance")) or Decimal(q) > QTY_MAX):
+            it["qty"], it["qty_note"] = "1", f"в количестве {q} — похоже на сумму, за 1 шт."
         p = get("priority")
         it["priority"] = int(p) if isinstance(p, (int, float)) or text(p).isdigit() else None
         sr = get("source_row")

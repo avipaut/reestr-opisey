@@ -103,6 +103,18 @@ class ReaderTests(TransactionTestCase):
         self.assertEqual(len(r["reconciliations"]), 1)
         self.assertEqual(r["rules"][0]["field"], "Код учёта")
 
+    def test_money_in_quantity_counts_as_one(self):
+        """Смотрим по количеству: сумма в «Количестве» (равна цене, больше 1000,
+        переставленные столбцы) — 1 шт., исходное число — в пометке."""
+        p = os.path.join(self.dir, "q.xlsx")
+        swapped = row("Компьютер", "31123130", "Резерв", qty=19990, inv="5", cost=1)
+        equal = row("Здание", "31112120", "Вынесено", qty=6824964, inv="6", cost=6824964)
+        make_book(p, [swapped, equal, row("Кабель", "31122190", "Резерв", qty=12.5, inv="7")])
+        items = parse_book(p)["items"]
+        self.assertEqual([i["qty"] for i in items], ["1", "1", "12.50"])
+        self.assertIn("19990", items[0]["qty_note"])
+        self.assertEqual(items[2]["qty_note"], "")
+
     def test_broken_book_is_an_error_not_a_crash(self):
         p = os.path.join(self.dir, "b.xlsx")
         open(p, "wb").write(b"not a zip")
