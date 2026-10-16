@@ -31,7 +31,9 @@ class ScanRun(models.Model):
     errors = models.IntegerField("ошибок", default=0)
     missing = models.IntegerField("пропали из папки", default=0)
     log = models.TextField("журнал", blank=True)
-    cancel = models.BooleanField("остановить", default=False)  # кнопки «Остановить обход», «Очистить базу»
+    cancel = models.BooleanField("остановить", default=False)
+    mem_mb = models.IntegerField("память процесса, МБ", default=0)
+    mem_peak_mb = models.IntegerField("память — пик, МБ", default=0)  # кнопки «Остановить обход», «Очистить базу»
     # Ход обхода — для экрана, пока обход идёт (обновляется раз в несколько файлов).
     stage = models.CharField("этап", max_length=40, blank=True)
     to_parse = models.IntegerField("к разбору", default=0)

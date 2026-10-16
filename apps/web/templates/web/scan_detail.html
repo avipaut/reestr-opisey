@@ -18,7 +18,8 @@
     <button type="button" class="lg st-copy" data-st="copy">копии <b data-k="moved">{{ run.moved|num }}</b></button>
     <button type="button" class="lg st-ignored" data-st="ignored">проигнорировано <b data-k="ignored">{{ run.ignored|num }}</b></button>
     <button type="button" class="lg st-error" data-st="error">ошибки <b data-k="errors">{{ run.errors|num }}</b></button>
-    <span class="muted">книг с ошибками данных: <b data-k="warnings">{{ run.warnings|num }}</b> · разобрано <b data-k="parsed">{{ run.parsed|num }}</b> из <b data-k="to_parse">{{ run.to_parse|num }}</b></span>
+    <span class="muted">книг с ошибками данных: <b data-k="warnings">{{ run.warnings|num }}</b> · разобрано <b data-k="parsed">{{ run.parsed|num }}</b> из <b data-k="to_parse">{{ run.to_parse|num }}</b>
+      · память <b data-k="mem_mb">{{ run.mem_mb|num }}</b> МБ, пик <b data-k="mem_peak_mb">{{ run.mem_peak_mb|num }}</b> МБ</span>
   </div>
 </div>
 

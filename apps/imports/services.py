@@ -14,10 +14,10 @@ import hashlib
 import logging
 import os
 import re
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import connection, reset_queries, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -80,8 +80,20 @@ class _Files:
             self.buf = []
 
 
-PROGRESS = ["found", "ignored", "unchanged", "moved", "parsed", "pending", "accepted", "same_content", "errors", "stage", "to_parse",
-            "current"]
+PROGRESS = ["found", "ignored", "unchanged", "moved", "parsed", "pending", "accepted", "same_content", "errors",
+            "warnings", "stage", "to_parse", "current", "mem_mb", "mem_peak_mb"]
+
+
+class MemoryLimit(Exception):
+    """Процесс обхода перешёл предел памяти — обход останавливается сам."""
+
+
+def _rss_mb():
+    try:
+        import psutil
+        return int(psutil.Process().memory_info().rss / 1048576)
+    except Exception:  # psutil нет — без замера
+        return 0
 
 
 class Cancelled(Exception):
@@ -93,9 +105,13 @@ def _progress(run, every=20, force=False):
     заодно — не просили ли остановить."""
     n = run.found + run.parsed + run.ignored
     if force or n % every == 0:
+        run.mem_mb = _rss_mb()
+        run.mem_peak_mb = max(run.mem_peak_mb, run.mem_mb)
         run.save(update_fields=PROGRESS)
         if ScanRun.objects.filter(pk=run.pk, cancel=True).exists():
             raise Cancelled()
+        if run.mem_mb and run.mem_mb > settings.SCAN_MEMORY_LIMIT_MB:
+            raise MemoryLimit()
 
 
 def scan(roots=None, workers=None, run=None) -> ScanRun:
@@ -171,9 +187,9 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
         _progress(run, force=True)
         copies = 0
         for (path, root, rel, size, mtime), parsed in _parse_all(todo, workers):
-            run.parsed += 1
             run.current = path
-            _progress(run, every=5)
+            # DEBUG копит текст каждого запроса (вставка 2 000 позиций — огромный) — чистим.
+            reset_queries()
             sha = parsed.get("sha256") or ""
             sf, _ = SourceFile.objects.update_or_create(path=path, defaults=dict(
                 root=root, rel_folder=rel, name=os.path.basename(path), size=size, mtime=mtime,
@@ -188,6 +204,8 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                     if copies <= 500:
                         notes.append(f"копия: {path} — как {twin}")
                     files.add(root, path, S.COPY, f"как {twin}")
+                    run.parsed += 1
+                    _progress(run, every=5)
                     continue
                 seen_sha[sha] = path
             issues = data_issues(parsed)
@@ -201,6 +219,8 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 notes.append(f"не записана: {sf.path}: {type(e).__name__}: {e}")
                 run.errors += 1
                 files.add(root, path, S.ERROR, f"не записана: {type(e).__name__}: {e}")
+                run.parsed += 1
+                _progress(run, every=5)
                 continue
             # База не для ручной работы (решение пользователя 16.10.2026): опись с узлом
             # принимается сразу, без просмотра.
@@ -222,12 +242,20 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
             else:
                 run.accepted += 1
                 files.add(root, path, S.ACCEPTED, issues, inv.pk)
+            run.parsed += 1
+            _progress(run, every=5)
+            del parsed, inv
         files.flush()
         run.state = ScanRun.State.DONE_ERRORS if run.errors else ScanRun.State.DONE
     except Cancelled:
         files.flush()
         run.state = ScanRun.State.CANCELLED
         notes.append("обход остановлен пользователем")
+    except MemoryLimit:
+        files.flush()
+        run.state = ScanRun.State.CANCELLED
+        notes.append(f"обход остановлен: память процесса {run.mem_mb} МБ — больше предела "
+                     f"{settings.SCAN_MEMORY_LIMIT_MB} МБ (SCAN_MEMORY_LIMIT_MB)")
     except Exception as e:
         log.exception("обход прерван")
         run.state = ScanRun.State.FAILED
@@ -304,15 +332,26 @@ def _parse_all(files, workers=None):
         for f in files:
             yield f, parse_book(f[0])
         return
+    # В работе — не больше двух книг на процесс: готовая отпускается сразу. Прежде
+    # as_completed держал все готовые задачи с результатами до конца обхода — утечка
+    # (16.10.2026: 1,4 ГБ на 1 300 книгах).
     ex = ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=20)
+    queue, inflight = list(files), {}
     try:
-        futs = {ex.submit(parse_book, f[0]): f for f in files}
-        for fu in as_completed(futs):
-            f = futs.pop(fu)
-            try:
-                yield f, fu.result()
-            except Exception as e:
-                yield f, {"error": f"процесс разбора упал: {type(e).__name__}: {e}", "sha256": ""}
+        while queue or inflight:
+            while queue and len(inflight) < workers * 2:
+                f = queue.pop(0)
+                inflight[ex.submit(parse_book, f[0])] = f
+            done, _ = wait(list(inflight), return_when=FIRST_COMPLETED)
+            for fu in done:
+                f = inflight.pop(fu)
+                try:
+                    res = fu.result()
+                except Exception as e:
+                    res = {"error": f"процесс разбора упал: {type(e).__name__}: {e}", "sha256": ""}
+                fu._result = None  # не держать строки книги в объекте задачи
+                yield f, res
+                del res
     finally:  # остановили — книги из очереди не читаются, идущие дочитываются
         ex.shutdown(wait=True, cancel_futures=True)
 

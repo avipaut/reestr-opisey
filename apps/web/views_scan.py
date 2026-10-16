@@ -14,7 +14,7 @@ from apps.imports.models import ScanFile, ScanRun
 
 STATUSES = [(s.value, s.label) for s in ScanFile.Status]
 FIELDS = ["state", "stage", "current", "found", "ignored", "unchanged", "moved", "parsed", "to_parse", "accepted",
-          "pending", "same_content", "errors", "warnings"]
+          "pending", "same_content", "errors", "warnings", "mem_mb", "mem_peak_mb"]
 
 
 @login_required
