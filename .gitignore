@@ -1,0 +1,11 @@
+# окружение и данные разработки — не в репозитории (граф APCS: debt-committed-artifacts)
+.venv/
+.dev/
+.env
+__pycache__/
+*.pyc
+*.log
+media/
+staticfiles/
+.coverage
+htmlcov/
