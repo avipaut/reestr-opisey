@@ -32,7 +32,7 @@ DOUBT = ["стоимость ≤ 1, количество от 2 до 1000", "д�
 
 
 def _orig(note):
-    m = re.search(r"в количестве (?:цена \()?([\d.]+)", note or "")
+    m = re.search(r"в количестве (?:цена \()?(-?[\d.]+)", note or "")  # бывает и отрицательное
     return Decimal(m.group(1)) if m else None
 
 
