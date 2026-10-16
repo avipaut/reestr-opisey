@@ -14,6 +14,7 @@ urlpatterns = [
     path("scans/<int:pk>/", views.scan_detail, name="scan_detail"),
     path("scans/<int:pk>/progress/", views_scan.scan_progress, name="scan_progress"),
     path("scans/<int:pk>/tree/", views_scan.scan_tree, name="scan_tree"),
+    path("scans/<int:pk>/export/", views_scan.scan_export, name="scan_export"),
     path("import/fs/", views_folders.fs_list, name="fs_list"),
     path("import/folder/", views_folders.import_folder, name="import_folder"),
     path("import/stop/", views_folders.scan_stop, name="scan_stop"),

@@ -58,3 +58,18 @@ def scan_tree(request, pk):
               "inventory": f.inventory_id}
              for f in rows.filter(rel_dir="\\".join(cur)).order_by("name")]
     return JsonResponse({"dirs": dirs, "files": files})
+
+
+@login_required
+def scan_export(request, pk):
+    """«Выгрузить в Excel» — ошибки с путями, ошибки данных, пропущенные, исключённые позиции."""
+    from urllib.parse import quote
+
+    from django.http import HttpResponse
+
+    from apps.imports.report import build
+    run = get_object_or_404(ScanRun, pk=pk)
+    data, _ = build(run)
+    resp = HttpResponse(data, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(f'Обход {run.pk} — ошибки и пропущенные.xlsx')}"
+    return resp
