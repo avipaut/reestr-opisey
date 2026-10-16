@@ -6,7 +6,7 @@
 <div class="card">
   {% if runs %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Начало</th><th>Итог</th><th class="n">Файлов</th><th class="n">Без изменений</th><th class="n">То же содержимое</th><th class="n">Разобрано</th><th class="n">На просмотр</th><th class="n">Как актуальная</th><th class="n">Ошибок</th><th class="n">Пропало</th><th class="n">Длилось, с</th><th>Журнал</th></tr></thead>
+    <thead><tr><th>Начало</th><th>Итог</th><th class="n">Файлов</th><th class="n">Без изменений</th><th class="n" title="Файл побайтно совпадает с уже загруженным или найденным раньше в этом обходе">Копии</th><th class="n">Разобрано</th><th class="n">На просмотр</th><th class="n">Как актуальная</th><th class="n">Ошибок</th><th class="n">Пропало</th><th class="n">Длилось, с</th><th>Журнал</th></tr></thead>
     <tbody>{% for r in runs %}<tr>
       <td class="nw">{{ r.started_at|date:"d.m.Y H:i:s" }}</td>
       <td><span class="tag {% if r.state == 'done' %}ok{% elif r.state == 'running' %}{% elif r.state == 'busy' %}warn{% else %}bad{% endif %}">{{ r.get_state_display }}</span></td>

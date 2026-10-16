@@ -9,6 +9,7 @@
 import datetime as dt
 import hashlib
 import io
+import os
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -243,19 +244,36 @@ def _rules(ws, info):
     info["rules"] = rules
 
 
+BIG = 64 * 1024 * 1024  # крупнее — хеш потоком и чтение книги с диска, без копии в памяти
+
+
 def parse_book(path: str, data: bytes = None) -> dict:
-    """Разобрать книгу. Не бросает: ошибка — в поле error."""
+    """Разобрать книгу. Не бросает: ошибка — в поле error.
+
+    Память (ОЗУ 16.10.2026: «ОЗУ очень плохо!» — полная загрузка большой
+    исходной книги заняла 4,2 ГБ): книга читается потоково (read_only —
+    строки по одной, заливки ячеек openpyxl отдаёт и так), с диска — один
+    раз: хеш и разбор из одних байтов; книга без листов описи бросается до
+    чтения строк."""
     info = {"path": path, "error": "", "items": [], "unknown_columns": [], "org_text": "",
             "source_name": "", "source_sheet": "", "source_kind": "", "source_hierarchy": "",
             "source_folder": "", "cost_basis": "", "source_date": None, "summary_lines": [],
             "reconciliations": [], "rules": [], "sha256": "", "content_hash": ""}
     try:
-        if data is None:
+        src = path
+        if data is None and os.path.getsize(path) > BIG:
+            h = hashlib.sha256()
             with open(path, "rb") as f:
-                data = f.read()
-        info["sha256"] = hashlib.sha256(data).hexdigest()
-        # read_only=False: нужны заливки ячеек (отметки пользователя цветом).
-        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            info["sha256"] = h.hexdigest()
+        else:
+            if data is None:
+                with open(path, "rb") as f:
+                    data = f.read()
+            info["sha256"] = hashlib.sha256(data).hexdigest()
+            src = io.BytesIO(data)
+        wb = openpyxl.load_workbook(src, read_only=True, data_only=True)
     except Exception as e:  # книга не открылась — это итог разбора, а не падение
         info["error"] = "книга не открывается: " + (str(e).splitlines() or [type(e).__name__])[0][:300]
         return info

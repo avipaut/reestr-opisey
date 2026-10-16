@@ -133,6 +133,8 @@ INVENTORY_ROOTS = env_list("INVENTORY_ROOTS", ";")
 # Листы-списки описи и листы-сведения (формат — запись графа normalizovannaya-opis-format).
 INVENTORY_LIST_SHEETS = ["Опись", "Вынесено", "Ручная валидация"]
 INVENTORY_EXTENSIONS = [".xlsx", ".xlsm"]
+# Процессов разбора книг: память важнее скорости (ОЗУ 16.10.2026).
+INVENTORY_WORKERS = int(env("INVENTORY_WORKERS", "2"))
 
 # Фоновые задачи — очередь в самой базе: Celery на Windows не поддерживается,
 # а очередь не должна жить в вытесняющем кэше (граф APCS: debt-redis-evicts-queue).

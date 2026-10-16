@@ -129,7 +129,10 @@ class ScanTests(TransactionTestCase):
         self.assertEqual((run.unchanged, run.parsed), (1, 0))
         shutil.copy(os.path.join(self.folder, "опись.xlsx"), os.path.join(self.root, "копия.xlsx"))
         run = self.scan()
-        self.assertEqual((run.moved, run.parsed), (1, 0))
+        # Книга читается один раз (хеш из тех же байтов), копия опознаётся после разбора.
+        self.assertEqual((run.moved, run.pending), (1, 0))
+        self.assertIn("копия:", run.log)
+        self.assertEqual(Inventory.objects.count(), 1)
 
     def test_accept_creates_nodes_and_stats(self):
         make_book(os.path.join(self.folder, "опись.xlsx"), BASE)

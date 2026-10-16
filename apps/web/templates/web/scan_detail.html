@@ -11,12 +11,12 @@
   <p><b>{{ run.stage|default:"в очереди" }}</b>{% if run.current %} · <span class="muted">{{ run.current }}</span>{% endif %}</p>
   {% if run.to_parse %}<div class="upbar"><div style="width: {% widthratio run.parsed run.to_parse 100 %}%"></div></div>
   <p class="muted">Разобрано {{ run.parsed|num }} из {{ run.to_parse|num }}</p>{% endif %}
-  <p class="muted">Найдено файлов {{ run.found|num }}: без изменений {{ run.unchanged|num }}, уже известны {{ run.moved|num }}{% if run.errors %}, ошибок {{ run.errors|num }}{% endif %}. Страница обновляется сама.</p>
+  <p class="muted">Найдено файлов {{ run.found|num }}: без изменений {{ run.unchanged|num }}, копий {{ run.moved|num }}{% if run.errors %}, ошибок {{ run.errors|num }}{% endif %}. Страница обновляется сама.</p>
 </div>
 {% else %}
 <div class="tiles">
   <div class="tile"><div class="k">Итог</div><div class="v"><span class="tag {% if run.state == 'done' %}ok{% else %}bad{% endif %}">{{ run.get_state_display }}</span></div><div class="d muted">{{ run.duration|num:1 }} с</div></div>
-  <div class="tile"><div class="k">Файлов найдено</div><div class="v">{{ run.found|num }}</div><div class="d muted">без изменений {{ run.unchanged|num }} · уже известны {{ run.moved|num }}</div></div>
+  <div class="tile"><div class="k">Файлов найдено</div><div class="v">{{ run.found|num }}</div><div class="d muted">без изменений {{ run.unchanged|num }} · копий {{ run.moved|num }}</div></div>
   <div class="tile"><div class="k">На просмотр</div><div class="v">{{ run.pending|num }}</div><div class="d muted">строки как в актуальной: {{ run.same_content|num }}</div></div>
   <div class="tile"><div class="k">Ошибок</div><div class="v {% if run.errors %}minus{% endif %}">{{ run.errors|num }}</div></div>
 </div>

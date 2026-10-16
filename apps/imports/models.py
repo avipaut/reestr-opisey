@@ -19,7 +19,7 @@ class ScanRun(models.Model):
     finished_at = models.DateTimeField("конец", null=True, blank=True)
     found = models.IntegerField("файлов найдено", default=0)
     unchanged = models.IntegerField("без изменений (по размеру и времени)", default=0)
-    moved = models.IntegerField("то же содержимое (хеш известен)", default=0)
+    moved = models.IntegerField("копии (то же содержимое уже есть)", default=0)
     parsed = models.IntegerField("разобрано", default=0)
     pending = models.IntegerField("ждут просмотра", default=0)
     same_content = models.IntegerField("строки как в актуальной", default=0)

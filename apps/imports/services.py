@@ -47,14 +47,6 @@ def _walk(root, exts):
                 yield os.path.join(cur, name)
 
 
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 PROGRESS = ["found", "unchanged", "moved", "parsed", "pending", "same_content", "errors", "stage", "to_parse",
             "current"]
 
@@ -80,11 +72,15 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
         run.state, run.finished_at = ScanRun.State.BUSY, timezone.now()
         run.save()
         return run
+    # Блокировка наша — значит, «идущие» обходы без конца оборваны (сервер остановили).
+    ScanRun.objects.filter(finished_at__isnull=True).exclude(pk=run.pk).update(
+        state=ScanRun.State.FAILED, finished_at=timezone.now(), stage="", current="",
+        log="обход прерван: сервер остановлен до конца обхода")
     notes = []
     try:
         exts = {e.lower() for e in settings.INVENTORY_EXTENSIONS}
         known = {sf.path: sf for sf in SourceFile.objects.filter(root__in=roots)}
-        seen, todo, todo_sha = set(), [], set()
+        seen, todo, seen_sha = set(), [], {}
         now = timezone.now()
         for root in roots:
             if not os.path.isdir(root):
@@ -111,23 +107,10 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                     sf.last_seen = now
                     sf.save(update_fields=["last_seen", "missing"])
                     continue
-                try:
-                    sha = _sha256(path)
-                except OSError as e:
-                    notes.append(f"не читается: {path}: {e}")
-                    run.errors += 1
-                    continue
+                # Новая или изменённая книга — в разбор; хеш считает разбор из тех же
+                # байтов (одно чтение по сети вместо двух).
                 rel = os.path.relpath(os.path.dirname(path), root)
-                sf, _ = SourceFile.objects.update_or_create(path=path, defaults=dict(
-                    root=root, rel_folder="" if rel == "." else rel, name=os.path.basename(path),
-                    size=st.st_size, mtime=mtime, sha256=sha, last_seen=now, missing=False))
-                # То же содержимое уже есть (в базе или в этом же обходе) — без разбора.
-                if sha in todo_sha or Inventory.objects.filter(sha256=sha).exclude(
-                        state=Inventory.State.ERROR).exists():
-                    run.moved += 1
-                    continue
-                todo.append(sf)
-                todo_sha.add(sha)
+                todo.append((path, root, "" if rel == "." else rel, st.st_size, mtime))
         gone = [sf for p, sf in known.items() if p not in seen and not sf.missing]
         for sf in gone:
             sf.missing = True
@@ -136,10 +119,26 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
 
         run.stage, run.to_parse = "разбор книг", len(todo)
         _progress(run, force=True)
-        for sf, parsed in _parse_all(todo, workers):
+        copies = 0
+        for (path, root, rel, size, mtime), parsed in _parse_all(todo, workers):
             run.parsed += 1
-            run.current = sf.path
+            run.current = path
             _progress(run, every=5)
+            sha = parsed.get("sha256") or ""
+            sf, _ = SourceFile.objects.update_or_create(path=path, defaults=dict(
+                root=root, rel_folder=rel, name=os.path.basename(path), size=size, mtime=mtime,
+                sha256=sha, last_seen=now, missing=False))
+            # Копия: то же содержимое уже есть — в базе или раньше в этом обходе.
+            if sha:
+                twin = seen_sha.get(sha) or Inventory.objects.filter(sha256=sha).exclude(
+                    state=Inventory.State.ERROR).values_list("source_file__path", flat=True).first()
+                if twin:
+                    run.moved += 1
+                    copies += 1
+                    if copies <= 500:
+                        notes.append(f"копия: {path} — как {twin}")
+                    continue
+                seen_sha[sha] = path
             try:
                 inv = _stage(sf, parsed)
             except Exception as e:  # одна книга не валит обход, но и не теряется
@@ -173,19 +172,22 @@ def _parse_all(files, workers=None):
     """Разбор книг в процессах (на Windows — spawn); по одной — без пула."""
     if not files:
         return
-    workers = workers or max(1, min((os.cpu_count() or 2) - 1, 8, len(files)))
+    # Процессов немного (настройка INVENTORY_WORKERS, по умолчанию 2): память
+    # важнее скорости — сервер слабый, рядом работают люди. Процесс через 20
+    # книг сменяется новым, чтобы память не копилась.
+    workers = max(1, min(workers or settings.INVENTORY_WORKERS, len(files)))
     if len(files) < 3 or workers == 1:
-        for sf in files:
-            yield sf, parse_book(sf.path)
+        for f in files:
+            yield f, parse_book(f[0])
         return
-    with ProcessPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(parse_book, sf.path): sf for sf in files}
+    with ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=20) as ex:
+        futs = {ex.submit(parse_book, f[0]): f for f in files}
         for fu in as_completed(futs):
-            sf = futs[fu]
+            f = futs.pop(fu)
             try:
-                yield sf, fu.result()
+                yield f, fu.result()
             except Exception as e:
-                yield sf, {"error": f"процесс разбора упал: {type(e).__name__}: {e}", "sha256": sf.sha256}
+                yield f, {"error": f"процесс разбора упал: {type(e).__name__}: {e}", "sha256": ""}
 
 
 # ------------------------------------------------------------------ запись
