@@ -179,8 +179,10 @@ def _list_sheet(ws, out_items, unknown_cols):
         # Смотрим по количеству, не по ценам (решение пользователя 16.10.2026): в части описей
         # в «Количестве» стоит цена — равна первонач. или балансовой стоимости → за 1 шт.
         # Больше QTY_MAX — тоже не штуки (в отдельных описях весь столбец — суммы).
+        ci = it.get("cost_initial")
+        swapped = ci is not None and Decimal(ci) <= 1 and Decimal(q or 0) != Decimal(q or 0).to_integral_value()
         if q is not None and q not in ("0.00", "1.00") and (
-                q in (it.get("cost_initial"), it.get("cost_balance")) or Decimal(q) > QTY_MAX):
+                q in (ci, it.get("cost_balance")) or Decimal(q) > QTY_MAX or swapped):
             it["qty"], it["qty_note"] = "1", f"в количестве {q} — похоже на сумму, за 1 шт."
         p = get("priority")
         it["priority"] = int(p) if isinstance(p, (int, float)) or text(p).isdigit() else None

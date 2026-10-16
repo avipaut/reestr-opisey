@@ -65,7 +65,7 @@ class Command(BaseCommand):
         cur = Item.objects.filter(inventory__is_current=True).select_related("inventory__source_file", "status")
         by_file = defaultdict(lambda: defaultdict(int))
         fixed, doubt = [], []
-        for it in cur.exclude(qty_note="").order_by("inventory__source_file__path", "sheet", "row_no").iterator(
+        for it in cur.filter(qty_note__startswith="в количестве").order_by("inventory__source_file__path", "sheet", "row_no").iterator(
                 chunk_size=2000):
             q = _orig(it.qty_note)
             k = _kind(q, it)
@@ -81,6 +81,12 @@ class Command(BaseCommand):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "По книгам"
+        unit_name = re.compile(r"^\s*(т|кг|г|л|м|м2|м3|кв\.?\s*м\.?|шт\.?|п\.?\s*м\.?)\s*$", re.I)
+        fractional = []
+        for it in cur.filter(qty_note="").annotate(f=Floor("qty")).exclude(qty=F("f")).order_by(
+                "inventory__source_file__path", "sheet", "row_no"):
+            k = "вместо названия — единица измерения" if unit_name.match(it.name or "") else "дробное количество (меры?)"
+            fractional.append(_row(it, it.qty, k))
         extra = ["Сомнительных, строк", *DOUBT] if with_doubtful else []
         ws.append(["Путь к книге", "Битых строк", *KINDS, *extra])
         for path, d in sorted(by_file.items(), key=lambda x: -sum(x[1].values())):
@@ -88,7 +94,8 @@ class Command(BaseCommand):
                        *([sum(d[k] for k in DOUBT), *[d[k] for k in DOUBT]] if with_doubtful else [])])
         head = ["Путь к книге", "Лист", "Строка", "Инв. номер", "Основное средство", "Количество в книге",
                 "Первонач. стоимость, сом", "Балансовая стоимость, сом", "Рекомендуемый код", "Статус", "Вид"]
-        for title, rows in (("Битые строки", fixed), *((("Сомнительные", doubt),) if with_doubtful else ())):
+        for title, rows in (("Битые строки", fixed), ("Дробные", fractional),
+                            *((("Сомнительные", doubt),) if with_doubtful else ())):
             w = wb.create_sheet(title)
             w.append(head)
             for r in rows:
@@ -99,6 +106,9 @@ class Command(BaseCommand):
             ("Битые строки", "В «Количестве» — сумма: переставлены количество и стоимость (стоимость ≤ 1), "
                              "количество равно стоимости, стоимость × 100 или больше 1000. Реестр считает такую "
                              "позицию за 1 шт.; «Количество в книге» — число как в файле."),
+            ("Дробные", "Не битые, не исправлены: дробное количество при обычной стоимости — меры (литры, тонны, "
+                        "м²: материалы и запасы, не основные средства); отдельно — строки, где вместо названия "
+                        "стоит единица измерения («т»)."),
             ("Источник", "База реестра, актуальные описи; строка и лист — как в книге."),
         ]:
             p.append(list(line))
@@ -110,7 +120,7 @@ class Command(BaseCommand):
                 w.freeze_panes = "B2"
                 w.auto_filter.ref = w.dimensions
             w.column_dimensions["A"].width = 100
-        for w in [x for x in wb.worksheets if x.title in ("Битые строки", "Сомнительные")]:
+        for w in [x for x in wb.worksheets if x.title in ("Битые строки", "Дробные", "Сомнительные")]:
             w.column_dimensions["E"].width = 45
             for col in "BCDFGHIJ":
                 w.column_dimensions[col].width = 15
@@ -120,5 +130,5 @@ class Command(BaseCommand):
         wb["Пояснение"].column_dimensions["B"].width = 100
         os.makedirs(os.path.dirname(out), exist_ok=True)
         wb.save(out)
-        self.stdout.write(f"книг: {len(by_file)}; битых строк: {len(fixed)}"
+        self.stdout.write(f"книг: {len(by_file)}; битых строк: {len(fixed)}; дробных: {len(fractional)}"
                           + (f"; сомнительных: {len(doubt)}" if with_doubtful else "") + f"\n{out}")
