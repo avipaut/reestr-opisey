@@ -23,6 +23,8 @@ class ScanRun(models.Model):
     parsed = models.IntegerField("разобрано", default=0)
     pending = models.IntegerField("ждут просмотра", default=0)
     accepted = models.IntegerField("принято", default=0)
+    warnings = models.IntegerField("книг с ошибками данных", default=0)
+    log_file = models.CharField("файл журнала", max_length=1000, blank=True)
     same_content = models.IntegerField("строки как в актуальной", default=0)
     errors = models.IntegerField("ошибок", default=0)
     missing = models.IntegerField("пропали из папки", default=0)

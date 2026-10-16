@@ -215,6 +215,20 @@ class ScanTests(TransactionTestCase):
         run = self.scan()
         self.assertEqual(run.parsed, 0)
 
+    def test_errors_go_to_log_file_per_book(self):
+        """Ошибки — в журнал по файлам: путь книги и что не так (с листом и строкой)."""
+        make_book(os.path.join(self.folder, "опись.xlsx"),
+                  BASE + [row("Компьютер", "31123130", "Резерв", qty=19990, inv="5", cost=1)])
+        os.makedirs(os.path.join(self.root, "127"))
+        open(os.path.join(self.root, "127", "битая.xlsx"), "wb").write(b"x")
+        run = self.scan()
+        self.assertEqual((run.errors, run.warnings), (1, 1))
+        text = open(run.log_file, encoding="utf-8-sig").read()
+        self.assertIn("битая.xlsx: книга не открывается", text)
+        self.assertIn("опись.xlsx: сумма в «Количестве» — 1 стр.", text)
+        self.assertIn("Опись 5", text)
+        os.remove(run.log_file)
+
     def test_broken_file_counts_as_error(self):
         """Отказ не выглядит успехом (граф APCS: debt-import-swallows-failures)."""
         os.makedirs(self.folder)

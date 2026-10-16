@@ -18,9 +18,12 @@
   <div class="tile"><div class="k">Итог</div><div class="v"><span class="tag {% if run.state == 'done' %}ok{% else %}bad{% endif %}">{{ run.get_state_display }}</span></div><div class="d muted">{{ run.duration|num:1 }} с</div></div>
   <div class="tile"><div class="k">Файлов найдено</div><div class="v">{{ run.found|num }}</div><div class="d muted">без изменений {{ run.unchanged|num }} · копий {{ run.moved|num }}</div></div>
   <div class="tile"><div class="k">На просмотр</div><div class="v">{{ run.pending|num }}</div><div class="d muted">строки как в актуальной: {{ run.same_content|num }}</div></div>
-  <div class="tile"><div class="k">Ошибок</div><div class="v {% if run.errors %}minus{% endif %}">{{ run.errors|num }}</div></div>
+  <div class="tile"><div class="k">Принято</div><div class="v">{{ run.accepted|num }}</div></div>
+  <div class="tile"><div class="k">Ошибок</div><div class="v {% if run.errors %}minus{% endif %}">{{ run.errors|num }}</div><div class="d muted">книг с ошибками данных: {{ run.warnings|num }}</div></div>
 </div>
-{% if run.log %}<div class="card"><h2>Журнал</h2><div class="pad muted">{{ run.log|linebreaksbr }}</div></div>{% endif %}
+{% if run.log %}<div class="card"><h2>Журнал — ошибки по файлам</h2>
+  {% if run.log_file %}<p class="pad muted">Файл журнала: <code>{{ run.log_file }}</code></p>{% endif %}
+  <div class="pad muted logtext">{{ run.log|linebreaksbr }}</div></div>{% endif %}
 <div class="card"><h2>Ждут просмотра</h2>
   {% if found %}<div class="tbl-wrap"><table class="data"><thead><tr><th>Файл</th><th>Узел</th><th class="n">Позиций</th></tr></thead>
   <tbody>{% for inv in found %}<tr><td class="wrap"><a href="{% url 'review_detail' inv.pk %}">{{ inv.source_file.name }}</a><div class="muted">{{ inv.source_file.rel_folder }}</div></td>

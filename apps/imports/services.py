@@ -13,6 +13,7 @@ import datetime as dt
 import hashlib
 import logging
 import os
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from django.conf import settings
@@ -141,6 +142,10 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                         notes.append(f"копия: {path} — как {twin}")
                     continue
                 seen_sha[sha] = path
+            issues = data_issues(parsed)
+            if issues:
+                run.warnings += 1
+                notes.append(f"{path}: {issues}")
             try:
                 inv = _stage(sf, parsed)
             except Exception as e:  # одна книга не валит обход, но и не теряется
@@ -175,8 +180,55 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
         run.finished_at = timezone.now()
         run.stage, run.current = "", ""
         run.log = "\n".join(notes)
+        run.log_file = write_log(run, notes)
         run.save()
     return run
+
+
+UNIT_NAME = re.compile(r"^\s*(т|кг|г|л|м|м2|м3|кв\.?\s*м\.?|шт\.?|п\.?\s*м\.?)\s*$", re.I)
+
+
+def data_issues(parsed):
+    """Ошибки данных книги одной строкой (решение пользователя 16.10.2026: «При
+    импорте если ошибки встречаются, выбрасываем в лог ошибку по файлам»)."""
+    items = parsed.get("items") or []
+    money = [i for i in items if (i.get("qty_note") or "").startswith("в количестве")]
+    swapped = [i for i in money if "заменена" in i["qty_note"]]
+    unit = [i for i in items if UNIT_NAME.match(i.get("name") or "")]
+    neg = [i for i in items if (i.get("qty") or "").startswith("-")]
+    out = []
+    if money:
+        out.append(f"сумма в «Количестве» — {len(money)} стр. (из них переставлены количество и стоимость — "
+                   f"{len(swapped)}), посчитаны за 1 шт.; строки: {_rows(money)}")
+    if unit:
+        out.append(f"вместо названия — единица измерения — {len(unit)} стр.: {_rows(unit)}")
+    if neg:
+        out.append(f"отрицательное количество — {len(neg)} стр.: {_rows(neg)}")
+    return "; ".join(out)
+
+
+def _rows(items, limit=20):
+    s = ", ".join(f"{i['sheet']} {i['row_no']}" for i in items[:limit])
+    return s + (f" и ещё {len(items) - limit}" if len(items) > limit else "")
+
+
+def write_log(run, notes):
+    """Журнал обхода файлом: logs/import/обход-<номер>-<дата>.log — по строке на файл."""
+    folder = str(settings.IMPORT_LOG_DIR)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, f"обход-{run.pk}-{timezone.localtime(run.started_at):%Y-%m-%d_%H%M}.log")
+        with open(path, "w", encoding="utf-8-sig") as f:
+            f.write(f"Обход {run.pk}: {', '.join(run.roots or [])}\n")
+            f.write(f"Начало {timezone.localtime(run.started_at):%d.%m.%Y %H:%M}, конец "
+                    f"{timezone.localtime(run.finished_at):%d.%m.%Y %H:%M}; итог: {run.get_state_display()}\n")
+            f.write(f"Файлов {run.found}, разобрано {run.parsed}, принято {run.accepted}, копий {run.moved}, "
+                    f"ошибок {run.errors}, с ошибками данных {run.warnings}\n\n")
+            f.write("\n".join(notes) + "\n")
+        return path
+    except OSError as e:
+        log.warning("журнал обхода не записан: %s", e)
+        return ""
 
 
 def _parse_all(files, workers=None):

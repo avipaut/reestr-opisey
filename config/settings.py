@@ -137,6 +137,10 @@ INVENTORY_EXTENSIONS = [".xlsx", ".xlsm"]
 INVENTORY_WORKERS = int(env("INVENTORY_WORKERS", "2"))
 # Опись с узлом принимается сразу при обходе — база не для ручной работы (16.10.2026).
 AUTO_ACCEPT = env("AUTO_ACCEPT", "1") == "1"
+# Журналы обходов (ошибки по файлам); в тестах — во временную папку.
+IMPORT_LOG_DIR = BASE_DIR / "logs" / "import"
+if "test" in __import__("sys").argv:
+    IMPORT_LOG_DIR = Path(__import__("tempfile").mkdtemp(prefix="reestr-test-logs-"))
 # Служебные папки — не узлы: их книги относятся к узлу папки выше (годы «2025» — тоже).
 SERVICE_FOLDERS = ["обработанные", "обработанное", "архив", "старые", "старое", "исходные", "копии", "temp", "tmp"]
 
