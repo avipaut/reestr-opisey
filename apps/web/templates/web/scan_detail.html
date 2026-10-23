@@ -3,7 +3,7 @@
 {% block content %}
 <div class="crumbs"><a href="{% url 'import_page' %}">Импорт</a><span class="sep">/</span><span>обход {{ run.started_at|date:"d.m.Y H:i" }}</span></div>
 <h1 id="sc-title">{% if run.finished_at %}Обход закончен{% else %}Идёт обход…{% endif %}</h1>
-<p class="sub">{{ run.roots|join:", " }}{% if run.finished_at %} · {{ run.duration|num:1 }} с{% endif %}</p>
+<p class="sub">{{ run.roots_label }}{% if run.finished_at %} · {{ run.duration|num:1 }} с{% endif %}</p>
 {% if run.finished_at %}<p><a class="btn" href="{% url 'scan_export' run.pk %}">Выгрузить в Excel — ошибки и пропущенные</a></p>{% endif %}
 
 <div class="card pad" id="sc" data-run="{{ run.pk }}" data-finished="{% if run.finished_at %}1{% endif %}">

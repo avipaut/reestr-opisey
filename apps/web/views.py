@@ -9,7 +9,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.paginator import Paginator
-from django.db.models import Sum
+from django.db.models import Count, Sum
+from django.db.models.functions import Length, Substr
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -55,6 +56,25 @@ def _status_order():
     return list(Status.objects.filter(is_active=True).values_list("name", flat=True))
 
 
+# ------------------------------------------------------------------ обзор
+
+@login_required
+def home(request):
+    """Стартовая страница: поиск позиций, итоги, последний обход, что требует внимания.
+    Прежде стартовой была «На просмотр» — при автоприёме она почти всегда пуста."""
+    tot = Inventory.objects.filter(is_current=True).aggregate(n=Count("id"), rows=Sum("rows"), qty=Sum("qty"),
+                                                              cost=Sum("cost_initial"))
+    recent = list(Inventory.objects.filter(state=Inventory.State.ACCEPTED).select_related("node", "source_file")
+                  .defer("summary_lines", "unknown_columns", "proposed_path").order_by("-valid_from")[:8])
+    Node.fill_trails(inv.node for inv in recent)
+    return render(request, "web/home.html", {
+        "tot": tot, "orgs": Node.objects.filter(parent__isnull=True).count(),
+        "pending": Inventory.objects.filter(state=Inventory.State.PENDING).count(),
+        "last_run": ScanRun.objects.defer("log").first(),
+        "running": ScanRun.objects.filter(finished_at__isnull=True).only("id", "started_at", "roots").first(),
+        "recent": recent, "nav": "home"})
+
+
 # ------------------------------------------------------------------ просмотр
 
 @login_required
@@ -65,6 +85,7 @@ def review_list(request):
               .select_related("source_file").order_by("-parsed_at")[:20])
     from apps.imports.models import AcceptJob
     page = Paginator(pending, 200).get_page(request.GET.get("page"))
+    Node.fill_trails(inv.node for inv in page)
     return render(request, "web/review_list.html", {
         "page": page, "pending_total": page.paginator.count,
         "with_node": Inventory.objects.filter(state=Inventory.State.PENDING, node__isnull=False).count(),
@@ -167,11 +188,16 @@ def stats_orgs(request):
     at, date_raw = _when(request)
     parent = _node(request, "parent")
     children = list(Node.objects.filter(parent=parent).order_by("path"))
-    cells = defaultdict(dict)
+    cells = defaultdict(lambda: defaultdict(Decimal))
     codes = set()
-    for n in children:
-        for r in stats.stats_at(at, n).values("code").annotate(q=Sum("qty")):
-            cells[n.pk][r["code"]] = r["q"]
+    # Один запрос по поддереву parent: строка свода — ребёнку, в чьём поддереве её узел
+    # (прежде — запрос на каждого ребёнка: 44 у учреждений).
+    child_of = {n.path: n.pk for n in children}
+    depth = (parent.path if parent else "/").count("/")
+    for r in stats.stats_at(at, parent).values("node__path", "code").annotate(q=Sum("qty")):
+        cid = child_of.get("/".join(r["node__path"].split("/")[:depth + 1]) + "/")
+        if cid is not None:
+            cells[cid][r["code"]] += r["q"] or 0
             codes.add(r["code"])
     codes = sorted(codes, key=lambda c: (c in ("", "0"), c))
     has_kids = set(Node.objects.filter(parent__in=children).values_list("parent_id", flat=True))
@@ -211,7 +237,14 @@ def _params(request, at, node, view):
 
 @login_required
 def scans(request):
-    return render(request, "web/scans.html", {"runs": ScanRun.objects.all()[:100], "nav": "scans"})
+    """Журнал обходов: от журнала ошибок — первые строки (полный — на странице обхода;
+    целиком в таблице страница росла на сотни КБ с каждым обходом)."""
+    runs = list(ScanRun.objects.defer("log").annotate(log_start=Substr("log", 1, 1200), log_len=Length("log"))[:100])
+    for r in runs:
+        lines = [x for x in r.log_start.split("\n") if x]
+        r.log_lines = lines[:3]
+        r.log_more = r.log_len > len("\n".join(r.log_lines))
+    return render(request, "web/scans.html", {"runs": runs, "nav": "scans"})
 
 
 @login_required

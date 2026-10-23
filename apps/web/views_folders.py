@@ -9,6 +9,7 @@
 """
 
 import os
+import re
 import string
 
 from django.conf import settings
@@ -16,6 +17,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -25,33 +27,38 @@ from apps.imports.models import ScanRun
 EXTS = tuple(settings.INVENTORY_EXTENSIONS)
 
 
-def _start_scan(request, root):
-    """Обход в фоне: на сервере — обработчик очереди, в разработке — поток."""
+def _start_scan(request, root, upload=False):
+    """Обход в фоне: на сервере — обработчик очереди, в разработке — поток.
+    upload — книги, перетащенные с компьютера: после разбора стираются."""
     run = ScanRun.objects.create(roots=[root], stage="в очереди")
+    work_now = (lambda: imports.scan_upload(run=run)) if upload else (lambda: imports.scan([root], run=run))
     if getattr(settings, "SCAN_SYNC", False):  # тесты
-        imports.scan([root], run=run)
+        work_now()
     elif settings.DEBUG:  # разработка: фоновый поток того же процесса, без обработчика очереди
         import threading
         from django.db import connection
 
         def work():
             try:
-                imports.scan([root], run=run)
+                work_now()
             finally:
                 connection.close()
 
         threading.Thread(target=work, daemon=True).start()
     else:
         from django_q.tasks import async_task
-        async_task("apps.imports.tasks.scan_task", [root], run.pk)
+        if upload:
+            async_task("apps.imports.tasks.upload_task", run.pk)
+        else:
+            async_task("apps.imports.tasks.scan_task", [root], run.pk)
     return run
 
 
 def recent_folders(limit=8):
-    seen, out = set(), []
+    seen, out = {os.path.normcase(imports.upload_root())}, []  # папка загрузок — не для выбора
     for roots in ScanRun.objects.order_by("-started_at").values_list("roots", flat=True)[:200]:
         for r in roots or []:
-            key = os.path.normcase(r)
+            key = os.path.normcase(os.path.normpath(r))
             if key in seen:
                 continue
             seen.add(key)
@@ -106,6 +113,68 @@ def import_folder(request):
     run = _start_scan(request, path)
     messages.info(request, f"Обход папки {path} начат — ход ниже; найденные описи появятся «На просмотр».")
     return redirect("scan_detail", pk=run.pk)
+
+
+# ------------------------------------------------------------------ перетаскивание с компьютера
+# Браузер не сообщает пути папки на диске — только сами файлы и пути внутри
+# перетащенного. Поэтому книги загружаются (пачками, с ходом), разбираются тем же
+# обходом и стираются (решение пользователя 19.10.2026 «Разобрать и стереть»).
+
+def _upload_target(rel):
+    """Путь внутри папки загрузок по пути из браузера; None — не книга или путь чужой."""
+    parts = [p.strip() for p in re.split(r"[\\/]+", rel or "") if p.strip() not in ("", ".")]
+    if not parts or any(p == ".." or ":" in p for p in parts):
+        return None
+    if parts[-1].startswith("~$") or not parts[-1].lower().endswith(EXTS):
+        return None
+    root = os.path.abspath(imports.upload_root())
+    dest = os.path.abspath(os.path.join(root, *parts))
+    return dest if os.path.commonpath([root, dest]) == root else None
+
+
+@login_required
+@permission_required("inventories.add_inventory", raise_exception=True)
+@require_POST
+def upload_files(request):
+    """Пачка книг: files[] и paths[] (путь внутри перетащенного) — в папку загрузок.
+    first=1 — начало загрузки: остатки прерванной прежней стираются."""
+    if imports.scan_busy():
+        return JsonResponse({"error": "идёт обход — дождитесь конца или остановите его"}, status=409)
+    if request.POST.get("first") == "1":
+        imports.clear_upload()
+    files, paths = request.FILES.getlist("files"), request.POST.getlist("paths")
+    if len(files) != len(paths):
+        return JsonResponse({"error": "файлы и пути не совпадают"}, status=400)
+    saved, skipped = 0, []
+    for f, rel in zip(files, paths):
+        dest = _upload_target(rel)
+        if dest is None:
+            skipped.append(rel)
+            continue
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as out:
+                for chunk in f.chunks():
+                    out.write(chunk)
+            saved += 1
+        except OSError as e:
+            return JsonResponse({"error": f"не записан {rel}: {e.strerror or e}"}, status=500)
+    return JsonResponse({"saved": saved, "skipped": skipped})
+
+
+@login_required
+@permission_required("inventories.add_inventory", raise_exception=True)
+@require_POST
+def upload_start(request):
+    """Загрузка закончена — разбор в фоне; ответ — адрес страницы обхода."""
+    if imports.scan_busy():
+        return JsonResponse({"error": "идёт обход — дождитесь конца или остановите его"}, status=409)
+    root = imports.upload_root()
+    if not any(files for _, _, files in os.walk(root)):
+        return JsonResponse({"error": "книг для разбора нет — загрузите заново"}, status=400)
+    run = _start_scan(request, root, upload=True)
+    messages.info(request, "Книги загружены — идёт разбор; после него загруженные файлы стираются.")
+    return JsonResponse({"url": reverse("scan_detail", args=[run.pk])})
 
 
 @login_required

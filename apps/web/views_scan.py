@@ -40,7 +40,7 @@ def scan_tree(request, pk):
         out = []
         for i, r in enumerate(roots):
             c = Counter({x["status"]: x["n"] for x in run.files.filter(root=r).values("status").annotate(n=Count("id"))})
-            out.append({"name": r, "root": i, "dir": "", "counts": c})
+            out.append({"name": ScanRun.root_label(r), "root": i, "dir": "", "counts": c})
         return JsonResponse({"dirs": out, "files": []})
     root = roots[int(ri)]
     cur = _split(request.GET.get("dir") or "")

@@ -48,15 +48,36 @@ class Node(models.Model):
 
     @property
     def trail(self):
-        """«126 › 8. Ошское ДНВТ» — цепочка от учреждения."""
-        parts, n = [], self
-        while n is not None:
-            parts.append(n.label)
-            n = n.parent
-        return " › ".join(reversed(parts))
+        """«126 › 8. Ошское ДНВТ» — цепочка от учреждения. Для списков —
+        fill_trails: иначе каждый узел достаёт своих предков по одному."""
+        if getattr(self, "_trail", None) is None:
+            parts, n = [], self
+            while n is not None:
+                parts.append(n.label)
+                n = n.parent
+            self._trail = " › ".join(reversed(parts))
+        return self._trail
+
+    @classmethod
+    def fill_trails(cls, nodes):
+        """Цепочки для многих узлов одним запросом: предки — по началам пути «/126/8/»."""
+        nodes = list(nodes)
+        todo = [n for n in nodes if n is not None and getattr(n, "_trail", None) is None]
+        prefixes = set()
+        for n in todo:
+            parts = n.path.strip("/").split("/")
+            prefixes.update("/" + "/".join(parts[:i]) + "/" for i in range(1, len(parts)))
+        by_path = {a.path: a.label for a in cls.objects.filter(path__in=prefixes)} if prefixes else {}
+        for n in todo:
+            parts = n.path.strip("/").split("/")
+            chain =["/" + "/".join(parts[:i]) + "/" for i in range(1, len(parts))]
+            if all(p in by_path for p in chain):
+                n._trail = " › ".join([by_path[p] for p in chain] + [n.label])
+        return nodes
 
     def save(self, *args, **kwargs):
-        self.search = " ".join(x for x in (self.code, self.name) if x).lower().replace("ё", "е")
+        self._trail = None
+        self.search =" ".join(x for x in (self.code, self.name) if x).lower().replace("ё", "е")
         part = self.code or f"#{self.pk or 'new'}"
         if self.parent_id:
             self.level = self.parent.level + 1

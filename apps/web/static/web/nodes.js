@@ -155,4 +155,11 @@
 
   document.querySelectorAll(".np").forEach(picker);
   document.querySelectorAll("ul.tree").forEach(tree);
+
+  /* формы отбора (GET): пустые поля в адрес не идут — ссылку на выборку удобно переслать */
+  document.querySelectorAll("form.filters[method=get]").forEach((form) => form.addEventListener("submit", () => {
+    const off = [...form.elements].filter((el) => el.name && !el.disabled && el.value === "" && el.type !== "submit");
+    off.forEach((el) => { el.disabled = true; });
+    setTimeout(() => off.forEach((el) => { el.disabled = false; }));  // назад — форма снова полная
+  }));
 })();

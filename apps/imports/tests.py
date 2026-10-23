@@ -240,16 +240,6 @@ class ScanTests(TransactionTestCase):
         self.assertEqual((run.errors, run.pending), (0, 1))
         self.assertTrue(Item.objects.filter(recommended_code="3" * 40, inv_no="И" * 300).exists())
 
-    def test_long_cell_values_are_stored(self):
-        """Длинные значения ячеек (код, инв. номер, модель) записываются — 6 книг падали
-        на ограничении длины полей (DataError: value too long)."""
-        long = row("Станок " + "x" * 600, "3" * 40, "Основной список", inv="И" * 300)
-        long[12] = "М" * 700  # модель
-        make_book(os.path.join(self.folder, "опись.xlsx"), BASE + [long])
-        run = self.scan()
-        self.assertEqual((run.errors, run.pending), (0, 1))
-        self.assertTrue(Item.objects.filter(recommended_code="3" * 40, inv_no="И" * 300).exists())
-
     def test_failed_book_is_retried_without_file_change(self):
         """Книга, которая не записалась, при следующем обходе берётся заново, а не «без изменений»."""
         from apps.inventories.models import SourceFile
@@ -311,6 +301,71 @@ class AutoAcceptTests(TransactionTestCase):
         self.assertEqual(Item.objects.filter(excluded=True).count(), 2)
 
 
+@override_settings(AUTO_ACCEPT=True)
+class GoneFilesTests(TransactionTestCase):
+    """Модуль нормализации при пересборке удаляет прежнюю книгу и меняет имя («!ПРОВЕРИТЬ — »,
+    разбиение по листам): пропавшая книга снимается с актуальных — свод не двоит (21.10.2026)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.dir = os.path.join(self.root, "126", "8. Тест", "обработанные")
+        make_book(os.path.join(self.dir, "опись.xlsx"), BASE)  # 5 шт.
+        services.scan([self.root], workers=1)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def total(self, at=None):
+        return sum(r["qty"] for r in stats.by_code(at or timezone.now()))
+
+    def test_renamed_book_is_counted_once(self):
+        before = timezone.now()
+        os.remove(os.path.join(self.dir, "опись.xlsx"))
+        make_book(os.path.join(self.dir, "!ПРОВЕРИТЬ — опись.xlsx"), BASE[:2])  # пересобрана: 2 шт.
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.missing, run.accepted), (1, 1))
+        self.assertIn("снята с актуальных", run.log)
+        cur = Inventory.objects.get(is_current=True)
+        self.assertEqual(cur.source_file.name, "!ПРОВЕРИТЬ — опись.xlsx")
+        self.assertEqual(self.total(), 2, "старая опись не считается рядом с новой")
+        self.assertEqual(self.total(before), 5, "на прежнюю дату — как было")
+
+    def test_moved_book_with_same_bytes_is_not_a_copy(self):
+        """Перенос того же файла: двойник пропал — книга разбирается, а не пропускается как копия."""
+        os.makedirs(os.path.join(self.root, "127", "обработанные"))
+        os.rename(os.path.join(self.dir, "опись.xlsx"), os.path.join(self.root, "127", "обработанные", "опись.xlsx"))
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.moved, run.accepted), (0, 1))
+        self.assertEqual(Inventory.objects.get(is_current=True).node.code, "127")
+        self.assertEqual(self.total(), 5)
+
+    def test_returned_book_is_current_again(self):
+        keep = os.path.join(self.root, "опись.bak")
+        os.rename(os.path.join(self.dir, "опись.xlsx"), keep)
+        make_book(os.path.join(self.root, "127", "обработанные", "другая.xlsx"), BASE[:1])  # чтобы корень не был пуст
+        services.scan([self.root], workers=1)
+        self.assertEqual(self.total(), 1)
+        os.rename(keep, os.path.join(self.dir, "опись.xlsx"))  # тот же файл, тот же размер и время
+        services.scan([self.root], workers=1)
+        self.assertEqual(self.total(), 6)
+
+    def test_empty_or_unavailable_root_retires_nothing(self):
+        os.remove(os.path.join(self.dir, "опись.xlsx"))  # в корне ни одной книги: сбой, а не «всё удалили»
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.missing, self.total()), (0, 5))
+        self.assertIn("пропавшие с актуальных не снимаются", run.log)
+        shutil.rmtree(self.root)
+        run = services.scan([self.root], workers=1)
+        self.assertEqual((run.missing, self.total()), (0, 5))
+
+    def test_unreadable_folder_is_not_gone(self):
+        from apps.inventories.models import SourceFile
+        sf = SourceFile.objects.get()
+        notes = []
+        n = services._retire_gone({sf.path: sf}, set(), [sf.root], [os.path.dirname(self.dir)], timezone.now(), notes)
+        self.assertEqual((n, self.total()), (0, 5))
+
+
 @override_settings(PROCESSED_FOLDERS=["обработанные"], AUTO_ACCEPT=True)
 class ProcessedOnlyTests(TransactionTestCase):
     """Читаются только книги в «обработанные»; исходные рядом не открываются и в журнал не идут."""
@@ -331,3 +386,24 @@ class ProcessedOnlyTests(TransactionTestCase):
         self.assertNotIn("исходн", run.log)
         self.assertEqual(Inventory.objects.get().node.path, "/115/8/")
 
+
+
+@override_settings(AUTO_ACCEPT=True)
+class RetireRootTests(TransactionTestCase):
+    """Смена папки реестра: описи прежней папки снимаются с актуальных, ничего не удаляется."""
+
+    def test_retire_root(self):
+        from django.core.management import call_command
+        old, new = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            make_book(os.path.join(old, "126", "опись.xlsx"), BASE)
+            make_book(os.path.join(new, "126", "опись.xlsx"), BASE[:2])
+            services.scan([old], workers=1)
+            services.scan([new], workers=1)
+            self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 7, "до снятия — двойной счёт")
+            call_command("retire_root", old, stdout=open(os.devnull, "w"))
+            self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 2)
+            self.assertEqual(Inventory.objects.count(), 2, "ничего не удалено")
+        finally:
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(new, ignore_errors=True)
