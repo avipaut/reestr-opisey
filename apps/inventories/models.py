@@ -18,7 +18,7 @@ MONEY = {"max_digits": 18, "decimal_places": 2, "null": True, "blank": True}
 
 class Status(models.Model):
     """Статус позиции (список): справочник самого приложения, правит администратор."""
-    name = models.CharField("название", max_length=100, unique=True)
+    name = models.TextField("название", unique=True)
     order = models.PositiveSmallIntegerField("порядок", default=100)
     is_active = models.BooleanField("действует", default=True)
 
@@ -33,7 +33,7 @@ class Status(models.Model):
 
 class ObjectType(models.Model):
     """«Тип объекта (определён)» — значения из описей."""
-    name = models.CharField("название", max_length=300, unique=True)
+    name = models.TextField("название", unique=True)
 
     class Meta:
         verbose_name = "тип объекта"
@@ -96,14 +96,14 @@ class Inventory(models.Model):
     is_current = models.BooleanField("актуальная", default=False)
 
     # Сведения об описи (лист «Сводка», имя файла, «Доп. сведения источника»).
-    org_text = models.CharField("организация (как в описи)", max_length=1000, blank=True)
+    org_text = models.TextField("организация (как в описи)", blank=True)
     source_date = models.DateField("дата источника", null=True, blank=True)
-    source_name = models.CharField("исходный файл", max_length=1000, blank=True)
-    source_sheet = models.CharField("лист источника", max_length=300, blank=True)
-    source_kind = models.CharField("вид источника", max_length=300, blank=True)
-    source_hierarchy = models.CharField("иерархия источника", max_length=300, blank=True)
-    source_folder = models.CharField("папка источника", max_length=1000, blank=True)
-    cost_basis = models.CharField("основа стоимостей", max_length=300, blank=True)
+    source_name = models.TextField("исходный файл", blank=True)
+    source_sheet = models.TextField("лист источника", blank=True)
+    source_kind = models.TextField("вид источника", blank=True)
+    source_hierarchy = models.TextField("иерархия источника", blank=True)
+    source_folder = models.TextField("папка источника", blank=True)
+    cost_basis = models.TextField("основа стоимостей", blank=True)
     check_flag = models.BooleanField("пометка «ПРОВЕРИТЬ»", default=False)
     summary_lines = models.JSONField("строки «Сводки»", default=list, blank=True)
     unknown_columns = models.JSONField("столбцы вне схемы", default=list, blank=True)
@@ -129,40 +129,40 @@ class Inventory(models.Model):
 class Item(models.Model):
     """Позиция описи — все столбцы листа своими полями (ТЗ 3.3)."""
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name="items", verbose_name="опись")
-    sheet = models.CharField("лист", max_length=100)
+    sheet = models.TextField("лист")
     row_no = models.IntegerField("строка листа")
 
     name = models.TextField("основное средство", blank=True)
-    account_code = models.CharField("код учёта", max_length=32, blank=True)
+    account_code = models.TextField("код учёта", blank=True)
     qty = models.DecimalField("количество", max_digits=14, decimal_places=3, default=1)
-    qty_note = models.CharField("количество — пометка", max_length=150, blank=True)
+    qty_note = models.TextField("количество — пометка", blank=True)
     # Материалы и запасы (меры: литры, тонны, м²) в свод штук не входят — решение
     # пользователя 16.10.2026 «Исключаем». Позиция хранится и видна в поиске.
     excluded = models.BooleanField("исключено из свода", default=False)
-    exclude_reason = models.CharField("почему исключено", max_length=200, blank=True)
-    inv_no = models.CharField("инв. номер", max_length=200, blank=True)
-    inv_key = models.CharField("ключ позиции", max_length=200, blank=True, db_index=True)
+    exclude_reason = models.TextField("почему исключено", blank=True)
+    inv_no = models.TextField("инв. номер", blank=True)
+    inv_key = models.TextField("ключ позиции", blank=True, db_index=True)
     cost_initial = models.DecimalField("первонач. стоимость", **MONEY)
     depreciation = models.DecimalField("накоп. износ", **MONEY)
     cost_balance = models.DecimalField("балансовая стоимость", **MONEY)
     priority = models.SmallIntegerField("приоритет", null=True, blank=True)
-    mol = models.CharField("МОЛ", max_length=500, blank=True)
-    recommended_code = models.CharField("рекомендуемый код", max_length=32, blank=True, db_index=True)
-    department_text = models.CharField("ведомство (как в описи)", max_length=1000, blank=True)
-    suborg_text = models.CharField("подведомство (как в описи)", max_length=1000, blank=True)
-    model = models.CharField("модель", max_length=500, blank=True)
-    working = models.CharField("рабочее или нет", max_length=200, blank=True)
+    mol = models.TextField("МОЛ", blank=True)
+    recommended_code = models.TextField("рекомендуемый код", blank=True, db_index=True)
+    department_text = models.TextField("ведомство (как в описи)", blank=True)
+    suborg_text = models.TextField("подведомство (как в описи)", blank=True)
+    model = models.TextField("модель", blank=True)
+    working = models.TextField("рабочее или нет", blank=True)
     # Статус: действующий (меняет администратор, ТЗ 4.2) и как в описи.
     status = models.ForeignKey(Status, null=True, on_delete=models.PROTECT, related_name="items",
                                verbose_name="статус")
-    status_doc = models.CharField("статус по описи", max_length=100, blank=True)
+    status_doc = models.TextField("статус по описи", blank=True)
     reason = models.TextField("причина", blank=True)
     comment = models.TextField("комментарий", blank=True)
     object_type = models.ForeignKey(ObjectType, null=True, blank=True, on_delete=models.PROTECT,
                                     verbose_name="тип объекта")
     fully_depreciated = models.BooleanField("полностью амортизирован", null=True, blank=True)
-    subdivision = models.CharField("подразделение", max_length=500, blank=True)
-    org_code = models.CharField("код организации (42→31)", max_length=32, blank=True)
+    subdivision = models.TextField("подразделение", blank=True)
+    org_code = models.TextField("код организации (42→31)", blank=True)
     source_row = models.IntegerField("строка источника", null=True, blank=True)
     saldo_begin_initial = models.DecimalField("сальдо нач.: первонач.", **MONEY)
     saldo_begin_dep = models.DecimalField("сальдо нач.: износ", **MONEY)
@@ -209,12 +209,12 @@ class ItemStatusChange(models.Model):
 class Reconciliation(models.Model):
     """«Сводка»: сверка с итогами источника по счёту."""
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name="reconciliations")
-    account = models.CharField("счёт", max_length=200)
+    account = models.TextField("счёт")
     src_initial = models.DecimalField("итог источника: первонач.", **MONEY)
     sum_initial = models.DecimalField("сумма позиций: первонач.", **MONEY)
     src_dep = models.DecimalField("итог источника: износ", **MONEY)
     sum_dep = models.DecimalField("сумма позиций: износ", **MONEY)
-    matches = models.CharField("совпадает", max_length=300, blank=True)
+    matches = models.TextField("совпадает", blank=True)
 
     class Meta:
         verbose_name = "сверка с источником"
@@ -225,7 +225,7 @@ class Rule(models.Model):
     """«Правила» описи: как заполнен каждый столбец — хранятся при каждой версии."""
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name="rules")
     order = models.PositiveIntegerField("порядок")
-    field = models.CharField("поле", max_length=300)
+    field = models.TextField("поле")
     text = models.TextField("как заполнено")
 
     class Meta:

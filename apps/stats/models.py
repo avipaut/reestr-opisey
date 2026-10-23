@@ -15,7 +15,7 @@ from apps.orgs.models import Node
 class VersionStat(models.Model):
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name="stats")
     node = models.ForeignKey(Node, on_delete=models.PROTECT, related_name="+")
-    code = models.CharField("рекомендуемый код", max_length=32)
+    code = models.TextField("рекомендуемый код")
     status = models.ForeignKey(Status, null=True, on_delete=models.PROTECT, related_name="+")
     priority = models.SmallIntegerField(null=True)
     object_type = models.ForeignKey(ObjectType, null=True, on_delete=models.PROTECT, related_name="+")

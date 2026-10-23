@@ -164,7 +164,10 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                     continue
                 mtime = dt.datetime.fromtimestamp(st.st_mtime, tz=dt.timezone.utc)
                 sf = known.get(path)
-                if sf and sf.size == st.st_size and abs((sf.mtime - mtime).total_seconds()) < 1:
+                # Без изменений — если по файлу есть опись; книга, которая не записалась
+                # (сбой записи), берётся заново и без изменения файла.
+                if (sf and sf.size == st.st_size and abs((sf.mtime - mtime).total_seconds()) < 1
+                        and sf.inventories.exists()):
                     run.unchanged += 1
                     if sf.missing:
                         sf.missing = False

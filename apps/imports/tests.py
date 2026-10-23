@@ -230,6 +230,36 @@ class ScanTests(TransactionTestCase):
         self.assertIn("Опись 5", text)
         os.remove(run.log_file)
 
+    def test_long_cell_values_are_stored(self):
+        """Длинные значения ячеек (код, инв. номер, модель) записываются — 6 книг падали
+        на ограничении длины полей (DataError: value too long)."""
+        long = row("Станок " + "x" * 600, "3" * 40, "Основной список", inv="И" * 300)
+        long[12] = "М" * 700  # модель
+        make_book(os.path.join(self.folder, "опись.xlsx"), BASE + [long])
+        run = self.scan()
+        self.assertEqual((run.errors, run.pending), (0, 1))
+        self.assertTrue(Item.objects.filter(recommended_code="3" * 40, inv_no="И" * 300).exists())
+
+    def test_long_cell_values_are_stored(self):
+        """Длинные значения ячеек (код, инв. номер, модель) записываются — 6 книг падали
+        на ограничении длины полей (DataError: value too long)."""
+        long = row("Станок " + "x" * 600, "3" * 40, "Основной список", inv="И" * 300)
+        long[12] = "М" * 700  # модель
+        make_book(os.path.join(self.folder, "опись.xlsx"), BASE + [long])
+        run = self.scan()
+        self.assertEqual((run.errors, run.pending), (0, 1))
+        self.assertTrue(Item.objects.filter(recommended_code="3" * 40, inv_no="И" * 300).exists())
+
+    def test_failed_book_is_retried_without_file_change(self):
+        """Книга, которая не записалась, при следующем обходе берётся заново, а не «без изменений»."""
+        from apps.inventories.models import SourceFile
+        make_book(os.path.join(self.folder, "опись.xlsx"), BASE)
+        self.scan()
+        Inventory.objects.all().delete()  # как после сбоя записи: файл известен, описи нет
+        self.assertTrue(SourceFile.objects.exists())
+        run = self.scan()
+        self.assertEqual((run.unchanged, run.pending), (0, 1))
+
     def test_broken_file_counts_as_error(self):
         """Отказ не выглядит успехом (граф APCS: debt-import-swallows-failures)."""
         os.makedirs(self.folder)
