@@ -17,7 +17,7 @@
 
 <div class="card">
   {% if table %}
-  <div class="tbl-wrap"><table class="data">
+  <div class="tbl-wrap"><table class="data pin1">
     <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}, шт.</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}, шт.</th>{% endfor %}<th class="n">Итого, шт.</th></tr></thead>
     <tbody>{% for t in table %}<tr>
       <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&date={{ date }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>

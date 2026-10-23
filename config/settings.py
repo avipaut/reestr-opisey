@@ -115,7 +115,7 @@ USE_I18N = True
 USE_TZ = True
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "review_list"
+LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "login"
 
 STATIC_URL = "static/"
@@ -148,6 +148,12 @@ if "test" in __import__("sys").argv:
 PROCESSED_FOLDERS = [x for x in (env("PROCESSED_FOLDERS", "обработанные") or "").split(";") if x.strip()]
 if "test" in __import__("sys").argv:
     PROCESSED_FOLDERS = []  # тесты строят книги без этой папки; правило проверяет свой тест
+# Книги, перетащенные в «Импорт» с компьютера: лежат здесь только до конца разбора
+# (решение пользователя 19.10.2026 «Разобрать и стереть»). Папка постоянная: та же
+# книга с тем же путём при новой загрузке — новая версия той же описи, а не вторая.
+UPLOAD_DIR = Path(env("UPLOAD_DIR") or BASE_DIR / "media" / "upload")
+if "test" in __import__("sys").argv:
+    UPLOAD_DIR = Path(__import__("tempfile").mkdtemp(prefix="reestr-test-upload-"))
 # Служебные папки — не узлы: их книги относятся к узлу папки выше (годы «2025» — тоже).
 SERVICE_FOLDERS = ["обработанные", "обработанное", "архив", "старые", "старое", "исходные", "копии", "temp", "tmp"]
 

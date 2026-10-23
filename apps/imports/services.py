@@ -48,11 +48,17 @@ def _in_processed(path):
     return any(part.strip().lower() in wanted for part in os.path.normpath(path).split(os.sep))
 
 
-def _walk(root, exts):
-    """(путь, читать ли): вне «обработанных» книга не открывается — только имя в дерево обхода."""
-    for cur, dirs, files in os.walk(root, onerror=lambda e: log.warning("нет доступа: %s", e)):
+def _walk(root, exts, processed_only=True, failed=None):
+    """(путь, читать ли): вне «обработанных» книга не открывается — только имя в дерево обхода.
+    failed — сюда пишутся папки, которые не прочитались (их книги не считаются пропавшими)."""
+    def onerror(e):
+        log.warning("нет доступа: %s", e)
+        if failed is not None and getattr(e, "filename", None):
+            failed.append(os.path.normpath(e.filename))
+
+    for cur, dirs, files in os.walk(root, onerror=onerror):
         dirs.sort(key=str.lower)
-        take = _in_processed(cur)
+        take = not processed_only or _in_processed(cur)
         for name in sorted(files, key=str.lower):
             if name.startswith("~$"):
                 continue  # временный файл открытой книги
@@ -114,9 +120,11 @@ def _progress(run, every=20, force=False):
             raise MemoryLimit()
 
 
-def scan(roots=None, workers=None, run=None) -> ScanRun:
+def scan(roots=None, workers=None, run=None, processed_only=True, mark_missing=True) -> ScanRun:
     """Обойти папки. Один обход за раз — блокировка в базе, снимается сама
-    при обрыве соединения."""
+    при обрыве соединения. Для загрузки с компьютера (scan_upload): книги уже
+    отобраны в браузере — processed_only=False; в папке лишь эта загрузка, а не
+    все книги — прежние не помечаются пропавшими (mark_missing=False)."""
     roots = [os.path.normpath(r) for r in (roots or settings.INVENTORY_ROOTS)]
     run = run or ScanRun.objects.create(roots=roots)
     run.roots, run.stage = roots, "поиск файлов"
@@ -140,12 +148,14 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
         files = _Files(run)
         S = ScanFile.Status
         now = timezone.now()
+        walked, failed = [], []  # корни, обойдённые целиком и с книгами; папки, что не прочитались
         for root in roots:
             if not os.path.isdir(root):
                 notes.append(f"папка недоступна: {root}")
                 run.errors += 1
                 continue
-            for path, take in _walk(root, exts):
+            found_before = run.found
+            for path, take in _walk(root, exts, processed_only, failed):
                 if not take:
                     run.ignored += 1
                     files.add(root, path, S.IGNORED)
@@ -164,24 +174,27 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                     continue
                 mtime = dt.datetime.fromtimestamp(st.st_mtime, tz=dt.timezone.utc)
                 sf = known.get(path)
-                if sf and sf.size == st.st_size and abs((sf.mtime - mtime).total_seconds()) < 1:
+                # Без изменений — если по файлу есть опись; книга, которая не записалась
+                # (сбой записи), берётся заново и без изменения файла. Вернувшаяся в папку
+                # (была снята с актуальных как пропавшая) — тоже заново: снова станет актуальной.
+                if (sf and not sf.missing and sf.size == st.st_size and abs((sf.mtime - mtime).total_seconds()) < 1
+                        and sf.inventories.exists()):
                     run.unchanged += 1
-                    if sf.missing:
-                        sf.missing = False
                     sf.last_seen = now
-                    sf.save(update_fields=["last_seen", "missing"])
+                    sf.save(update_fields=["last_seen"])
                     files.add(root, path, S.UNCHANGED)
                     continue
                 # Новая или изменённая книга — в разбор; хеш считает разбор из тех же
                 # байтов (одно чтение по сети вместо двух).
                 rel = os.path.relpath(os.path.dirname(path), root)
                 todo.append((path, root, "" if rel == "." else rel, st.st_size, mtime))
+            if run.found > found_before:
+                walked.append(root)
+            else:  # ни одной книги — скорее сбой сети или не та папка, чем пустая папка
+                notes.append(f"в папке нет ни одной книги — пропавшие с актуальных не снимаются: {root}")
         files.flush()
-        gone = [sf for p, sf in known.items() if p not in seen and not sf.missing]
-        for sf in gone:
-            sf.missing = True
-            sf.save(update_fields=["missing"])
-        run.missing = len(gone)
+        if mark_missing:
+            run.missing = _retire_gone(known, seen, walked, failed, now, notes)
 
         run.stage, run.to_parse = "разбор книг", len(todo)
         _progress(run, force=True)
@@ -196,8 +209,10 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
                 sha256=sha, last_seen=now, missing=False))
             # Копия: то же содержимое уже есть — в базе или раньше в этом обходе.
             if sha:
-                twin = seen_sha.get(sha) or Inventory.objects.filter(sha256=sha).exclude(
-                    state=Inventory.State.ERROR).values_list("source_file__path", flat=True).first()
+                # Двойник — другой файл и на месте: перенесённая книга (оригинал пропал) и
+                # вернувшаяся в папку (своя прежняя опись) — не копии.
+                twin = seen_sha.get(sha) or Inventory.objects.filter(sha256=sha, source_file__missing=False).exclude(
+                    state=Inventory.State.ERROR).exclude(source_file=sf).values_list("source_file__path", flat=True).first()
                 if twin:
                     run.moved += 1
                     copies += 1
@@ -271,7 +286,93 @@ def scan(roots=None, workers=None, run=None) -> ScanRun:
     return run
 
 
-UNIT_NAME = re.compile(r"^\s*(т|кг|г|л|м|м2|м3|кв\.?\s*м\.?|шт\.?|п\.?\s*м\.?)\s*$", re.I)
+def _retire_gone(known, seen, walked, failed, now, notes):
+    """Книги, пропавшие из обойдённых папок: «нет в папке», их опись — не актуальна.
+    Модуль нормализации при пересборке удаляет прежний файл и часто меняет имя
+    («!ПРОВЕРИТЬ — », разбиение по листам) — без этого старая опись оставалась
+    актуальной рядом с новой и свод считал её дважды (21.10.2026). Не трогаются
+    книги корней без единой найденной книги и папок, что не прочитались."""
+    failed = [os.path.normcase(d.rstrip("\\/")) + os.sep for d in failed]
+    gone = [sf for p, sf in known.items()
+            if p not in seen and not sf.missing and sf.root in walked
+            and not any(os.path.normcase(p).startswith(d) for d in failed)]
+    for sf in gone:
+        sf.missing = True
+        sf.save(update_fields=["missing"])
+        for inv in Inventory.objects.filter(source_file=sf, is_current=True):
+            retire(inv, now)
+            notes.append(f"снята с актуальных — файла нет в папке: {sf.path}")
+    return len(gone)
+
+
+@transaction.atomic
+def retire(inv: Inventory, at=None) -> Inventory:
+    """Опись больше не актуальна (файл пропал из папки): срок действия закрыт,
+    свод версии — тоже; «на дату» до этого момента она видна как прежде."""
+    at = at or timezone.now()
+    inv.is_current, inv.valid_to = False, at
+    inv.save(update_fields=["is_current", "valid_to"])
+    stats.close_stats(inv, at)
+    return inv
+
+
+def scan_busy():
+    """Обход идёт (держит блокировку) или ждёт в очереди обработчика. Запись без
+    конца после остановки сервера — не обход: её закроет следующий обход."""
+    with connection.cursor() as c:
+        c.execute("select exists(select 1 from pg_locks where locktype = 'advisory' and granted"
+                  " and classid = 0 and objid = %s and objsubid = 1)", [SCAN_LOCK])
+        if c.fetchone()[0]:
+            return True
+    return ScanRun.objects.filter(finished_at__isnull=True, stage="в очереди",
+                                  started_at__gte=timezone.now() - dt.timedelta(hours=1)).exists()
+
+
+def upload_root():
+    return os.path.normpath(str(settings.UPLOAD_DIR))
+
+
+def clear_upload():
+    """Стереть загруженные книги: в базе остаются разобранные сведения, путь и хеш."""
+    import shutil
+    root = upload_root()
+    shutil.rmtree(root, ignore_errors=True)
+    os.makedirs(root, exist_ok=True)
+
+
+def scan_upload(run=None, workers=None) -> ScanRun:
+    """Разобрать книги, перетащенные в «Импорт», и стереть их (решение пользователя
+    19.10.2026 «Разобрать и стереть»). Обход тот же, что для папки."""
+    root = upload_root()
+    try:
+        run = scan([root], workers=workers, run=run, processed_only=False, mark_missing=False)
+        twins = _twins_elsewhere(root, run)
+        if twins:
+            notes = [x for x in (run.log or "").split("\n") if x] + twins
+            run.log = "\n".join(notes)
+            run.log_file = write_log(run, notes) or run.log_file
+            run.save(update_fields=["log", "log_file"])
+        return run
+    finally:
+        clear_upload()
+
+
+def _twins_elsewhere(root, run):
+    """Загруженная книга с тем же путём (папка от корня и имя), что у книги из
+    папки на сервере, — другая книга для учёта версий: актуальными стали обе."""
+    out = []
+    loaded = SourceFile.objects.filter(root=root, last_seen__gte=run.started_at).exclude(
+        inventories__state__in=[Inventory.State.ERROR, Inventory.State.REJECTED])
+    for sf in loaded.distinct():
+        other = (SourceFile.objects.filter(rel_folder=sf.rel_folder, name=sf.name, inventories__is_current=True)
+                 .exclude(root=root).values_list("path", flat=True).first())
+        if other:
+            out.append(f"та же книга есть из папки: {sf.rel_folder}\\{sf.name} — уже загружена как {other}; "
+                       f"актуальны обе, проверьте свод")
+    return out
+
+
+UNIT_NAME =re.compile(r"^\s*(т|кг|г|л|м|м2|м3|кв\.?\s*м\.?|шт\.?|п\.?\s*м\.?)\s*$", re.I)
 
 
 def data_issues(parsed):

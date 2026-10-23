@@ -2,6 +2,9 @@
 (граф APCS: debt-import-history-dead). Итог — честные числа и ошибки
 (граф APCS: debt-import-swallows-failures)."""
 
+import os
+
+from django.conf import settings
 from django.db import models
 
 
@@ -46,6 +49,16 @@ class ScanRun(models.Model):
 
     def __str__(self):
         return f"{self.started_at:%d.%m.%Y %H:%M} — {self.get_state_display()}"
+
+    @staticmethod
+    def root_label(root):
+        """Папка для экрана: папка загрузок — словами (путь к ней пользователю ни о чём)."""
+        same = os.path.normcase(os.path.normpath(root)) == os.path.normcase(os.path.normpath(str(settings.UPLOAD_DIR)))
+        return "загрузка с компьютера" if same else root
+
+    @property
+    def roots_label(self):
+        return ", ".join(self.root_label(r) for r in self.roots or [])
 
     @property
     def duration(self):

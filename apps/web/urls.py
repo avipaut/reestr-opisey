@@ -3,7 +3,8 @@ from django.urls import path
 from . import views, views_folders, views_items, views_nodes, views_scan
 
 urlpatterns = [
-    path("", views.review_list, name="review_list"),
+    path("", views.home, name="home"),
+    path("review/", views.review_list, name="review_list"),
     path("scan/", views.scan_now, name="scan_now"),
     path("review/<int:pk>/", views.review_detail, name="review_detail"),
     path("review/<int:pk>/decide/", views.review_decide, name="review_decide"),
@@ -17,6 +18,8 @@ urlpatterns = [
     path("scans/<int:pk>/export/", views_scan.scan_export, name="scan_export"),
     path("import/fs/", views_folders.fs_list, name="fs_list"),
     path("import/folder/", views_folders.import_folder, name="import_folder"),
+    path("import/upload/", views_folders.upload_files, name="upload_files"),
+    path("import/upload/start/", views_folders.upload_start, name="upload_start"),
     path("import/stop/", views_folders.scan_stop, name="scan_stop"),
     path("import/wipe/", views_folders.wipe, name="wipe"),
     path("import/", views_items.import_page, name="import_page"),

@@ -35,6 +35,7 @@ a:hover { text-decoration: underline; }
 .side a { color: #c9d3de; padding: 8px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 8px; }
 .side a:hover { background: #22303f; text-decoration: none; }
 .side a.on { background: #2b3d52; color: #fff; }
+.side a.brand:hover { background: none; }
 .side .badge { background: var(--accent); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .side .grow { flex: 1; }
 .side form button { all: unset; cursor: pointer; color: #9fb0c2; padding: 8px 10px; }
@@ -80,7 +81,8 @@ table.data td.nw, table.data th.nw { white-space: nowrap; }
 .minus { color: var(--bad); }
 
 /* плитки итогов */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile .v { overflow-wrap: anywhere; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .tile .k { color: var(--ink-3); font-size: 12px; }
 .tile .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -99,6 +101,31 @@ table.data td.nw, table.data th.nw { white-space: nowrap; }
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
+/* карточка позиции: на широком экране поля в две пары столбцов — без длинной ленты */
+@media (min-width: 1200px) { .kv.two { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); column-gap: 24px; } }
+.kv dd.n { font-variant-numeric: tabular-nums; }
+
+/* широкая таблица: первый столбец (учреждение, код) не уезжает при прокрутке вправо */
+table.pin1 th:first-child, table.pin1 td:first-child { position: sticky; left: 0; box-shadow: 1px 0 0 var(--line); }
+table.pin1 tbody td:first-child { background: var(--surface); z-index: 1; }
+table.pin1 thead th:first-child { z-index: 3; }
+table.pin1 tfoot td:first-child { z-index: 2; }
+table.data th.node, table.data td.node { min-width: 280px; white-space: normal; }
+
+/* обзор */
+.home-search { display: flex; gap: 8px; margin: 4px 0 20px; max-width: 760px; }
+.home-search input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: var(--radius); font: inherit; font-size: 16px; }
+.home-search .btn { height: 44px; padding: 0 20px; }
+.home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.home-grid .card { margin: 0; }
+.alert { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 12px 16px; border-radius: var(--radius); margin-bottom: 16px; background: var(--warn-soft); color: var(--warn); }
+.alert a { font-weight: 600; }
+.links { list-style: none; margin: 0; padding: 4px 0; }
+.links li a { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; color: var(--ink); }
+.links li a:hover { background: #f5f8fc; }
+.links li + li a { border-top: 1px solid var(--line); }
+.links .muted { font-size: 13px; text-align: right; }
+.back { display: inline-block; margin-bottom: 8px; }
 
 details.list > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
 details.list > summary::-webkit-details-marker { display: none; }
@@ -174,6 +201,18 @@ code { font-family: Consolas, monospace; font-size: 13px; overflow-wrap: anywher
 
 @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } .tree-card { position: static; max-height: 420px; } }
 .filters select { max-width: 260px; }
+.filters select.full { max-width: none; width: 100%; }
+/* «Ещё фильтры» — редкие условия под спойлером, открыт, если что-то задано */
+.filters details.more { flex: 1 1 100%; }
+.filters details.more > summary { cursor: pointer; color: var(--accent); font-size: 13px; width: max-content; list-style: none; }
+.filters details.more > summary::-webkit-details-marker { display: none; }
+.filters details.more > summary::before { content: "▸ "; }
+.filters details.more[open] > summary::before { content: "▾ "; }
+.filters details.more > .filters { margin: 10px 0 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+/* сортировка щелчком по заголовку */
+table.data th a.sort { color: inherit; }
+table.data th a.sort:hover { color: var(--accent); }
+table.data th a.sort.on { color: var(--accent); }
 table.data th { white-space: nowrap; }
 /* длинный текст в узком столбце — одной строкой с многоточием, полностью — в подсказке */
 table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -191,6 +230,17 @@ table.data td.clip { max-width: 240px; white-space: nowrap; overflow: hidden; te
 .fs-list button:hover, .fs-list button:focus-visible { background: var(--accent-soft); }
 .fs-sep { padding: 8px 12px 2px; font-size: 12px; }
 .fs-msg:not(:empty) { padding: 8px 12px; border-top: 1px solid var(--line); }
+/* импорт с компьютера — перетаскивание */
+.drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; text-align: center;
+  border: 2px dashed var(--line-2); border-radius: var(--radius); background: #fafbfd; transition: background .15s, border-color .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.linkbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.up-note { margin: 10px 0 0; font-size: 13px; }
+#up-plan { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+#up-plan[hidden] { display: none; }
+#up-plan label.check { display: flex; gap: 6px; align-items: center; }
+.up-tops { overflow-wrap: anywhere; }
+.up-msg:empty { display: none; }
 .upbar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 10px 0; }
 .upbar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .bulkbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-bottom: 1px solid var(--line); }

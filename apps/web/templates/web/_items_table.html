@@ -12,7 +12,7 @@
     <tbody>{% for it in page.object_list %}<tr>
       {% if show_node %}<td class="clip" title="{{ it.inventory.node.trail }}"><a href="{% url 'inventory_detail' it.inventory_id %}">{{ it.inventory.node.trail }}</a></td>{% endif %}
       <td class="nw">{{ it.inv_no|default:"—" }}</td>
-      <td class="wrap"><a href="{% url 'item_detail' it.pk %}">{{ it.name }}</a>{% if it.model and it.model not in it.name %} <span class="muted">· {{ it.model }}</span>{% endif %}{% if it.excluded %} <span class="tag" title="{{ it.exclude_reason }}">исключено из свода</span>{% endif %}{% if it.user_mark or it.name_fill %} <span class="tag warn" title="{{ it.user_mark }}">отметка</span>{% endif %}</td>
+      <td class="wrap"><a href="{% url 'item_detail' it.pk %}?back={{ here|urlencode }}">{{ it.name }}</a>{% if it.model and it.model not in it.name %} <span class="muted">· {{ it.model }}</span>{% endif %}{% if it.excluded %} <span class="tag" title="{{ it.exclude_reason }}">исключено из свода</span>{% endif %}{% if it.user_mark or it.name_fill %} <span class="tag warn" title="{{ it.user_mark }}">отметка</span>{% endif %}</td>
       <td class="nw">{{ it.recommended_code|default:"—" }}</td>
       <td class="nw">{{ it.status|default:"—" }}{% if it.status.name != it.status_doc and it.status_doc %} <span class="tag" title="по описи: {{ it.status_doc }}">изменён</span>{% endif %}</td>
       <td class="n">{{ it.priority|default_if_none:"" }}</td>

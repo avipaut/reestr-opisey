@@ -1,0 +1,51 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Реестр описей{% endblock %}
+{% block content %}
+<h1>Реестр описей</h1>
+<p class="sub">Описи учреждений из сетевой папки: поиск позиций, своды по кодам учёта, история «на дату».</p>
+<form class="home-search" method="get" action="{% url 'items_search' %}" role="search">
+  <input type="search" name="q" placeholder="Найти позицию: наименование, инв. номер или модель" aria-label="Найти позицию" autofocus>
+  <button class="btn primary" type="submit">Найти</button>
+</form>
+
+{% if running %}<div class="alert">Идёт обход: {{ running.roots_label }} <a href="{% url 'scan_detail' running.pk %}">ход обхода →</a></div>{% endif %}
+{% if pending %}<div class="alert">Ждут просмотра: {{ pending|num }} оп. <a href="{% url 'review_list' %}">открыть →</a></div>{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="k">Учреждений</div><div class="v">{{ orgs|num }}</div></div>
+  <div class="tile"><div class="k">Актуальных описей</div><div class="v">{{ tot.n|num }}</div></div>
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
+  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:0 }}</div></div>
+</div>
+
+<div class="home-grid">
+  <div class="card"><h2>Своды и отчёты</h2>
+    <ul class="links">
+      <li><a href="{% url 'stats_codes' %}">Свод по кодам учёта <span class="muted">количество по коду и статусу</span></a></li>
+      <li><a href="{% url 'stats_orgs' %}">Код × учреждение <span class="muted">коды по учреждениям и подведам</span></a></li>
+      <li><a href="{% url 'inventories' %}">Описи <span class="muted">актуальные и на дату</span></a></li>
+      <li><a href="{% url 'nodes' %}">Учреждения <span class="muted">дерево учреждений и подведов</span></a></li>
+    </ul>
+  </div>
+
+  <div class="card"><h2>Последний обход</h2>
+    {% if last_run %}
+    <ul class="links">
+      <li><a href="{% url 'scan_detail' last_run.pk %}"><span>{{ last_run.started_at|date:"d.m.Y H:i" }}
+        <span class="tag {% if last_run.state == 'done' %}ok{% elif last_run.state == 'running' %}{% elif last_run.state == 'busy' %}warn{% else %}bad{% endif %}">{% if last_run.finished_at %}{{ last_run.get_state_display }}{% else %}идёт{% endif %}</span></span>
+        <span class="muted">подробно →</span></a></li>
+    </ul>
+    <div class="pad muted">{{ last_run.roots_label }}<br>
+      файлов {{ last_run.found|num }} · принято {{ last_run.accepted|num }} · без изменений {{ last_run.same_content|add:last_run.unchanged|num }}{% if last_run.errors %} · <span class="minus">ошибок {{ last_run.errors|num }}</span>{% endif %}</div>
+    {% else %}<div class="empty"><b>Обходов ещё не было</b><a href="{% url 'import_page' %}">Импорт описей →</a></div>{% endif %}
+  </div>
+
+  <div class="card"><h2>Недавно принятые описи</h2>
+    {% if recent %}<ul class="links">{% for inv in recent %}
+      <li><a href="{% url 'inventory_detail' inv.pk %}"><span>{{ inv.node.trail|default:inv.source_file.name }}</span><span class="muted nw">{{ inv.rows|num }} поз. · {{ inv.valid_from|date:"d.m.Y" }}</span></a></li>{% endfor %}
+    </ul>
+    {% else %}<div class="empty"><b>Принятых описей нет</b><a href="{% url 'import_page' %}">Импорт описей →</a></div>{% endif %}
+  </div>
+</div>
+{% endblock %}

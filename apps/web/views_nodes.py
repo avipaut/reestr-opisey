@@ -28,6 +28,7 @@ def nodes_children(request):
     has = set(Node.objects.filter(parent__in=kids).values_list("parent_id", flat=True))
     for k in kids:
         k.kids = k.pk in has
+    Node.fill_trails([*kids, parent])
     counts = services.subtree_counts(parent)
     return JsonResponse({"parent": _node_json(parent) if parent else None,
                          "crumbs": [{"id": c.pk, "label": c.label} for c in _crumbs(parent)],
@@ -39,9 +40,9 @@ def nodes_search(request):
     q = (request.GET.get("q") or "").strip()
     if not q:
         return JsonResponse({"items": []})
-    qs = Node.objects.filter(Q(code=q) | Q(code__startswith=q) | Q(search__contains=q.lower().replace("ё", "е"))).select_related("parent")
-    qs = qs.order_by("level", "path")[:30]
-    return JsonResponse({"items": [{"id": n.pk, "label": n.label, "trail": n.trail} for n in qs]})
+    qs = Node.objects.filter(Q(code=q) | Q(code__startswith=q) | Q(search__contains=q.lower().replace("ё", "е")))
+    found = Node.fill_trails(list(qs.order_by("level", "path")[:30]))
+    return JsonResponse({"items": [{"id": n.pk, "label": n.label, "trail": n.trail} for n in found]})
 
 
 def _crumbs(node):

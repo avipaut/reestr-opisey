@@ -1,6 +1,7 @@
 {% extends "web/base.html" %}{% load num %}
 {% block title %}{{ it.name|truncatechars:60 }} — Реестр описей{% endblock %}
 {% block content %}
+{% if back %}<a class="back" href="{{ back }}">← к результатам</a>{% endif %}
 <div class="crumbs"><a href="{% url 'inventories' %}">Описи</a><span class="sep">/</span><a href="{% url 'inventory_detail' it.inventory_id %}">{{ it.inventory.node.trail|default:it.inventory.source_file.name }}</a><span class="sep">/</span><span>{{ it.sheet }}, строка {{ it.row_no }}</span></div>
 <h1>{{ it.name }}</h1>
 <p class="sub">Инв. № {{ it.inv_no|default:"—" }} · код {{ it.recommended_code|default:"—" }} · {{ it.status|default:"без статуса" }}{% if it.status_doc and it.status.name != it.status_doc %} (по описи: {{ it.status_doc }}){% endif %}</p>
@@ -15,7 +16,7 @@
 {% endif %}
 
 <div class="card"><h2>Все поля позиции</h2>
-  <dl class="kv pad">{% for label, v in fields %}<dt>{{ label|capfirst }}</dt><dd>{% if v is None or v == "" %}<span class="muted">—</span>{% elif v is True %}да{% elif v is False %}нет{% else %}{{ v }}{% endif %}</dd>{% endfor %}
+  <dl class="kv two pad">{% for label, v in fields %}<dt>{{ label|capfirst }}</dt><dd>{% if v is None or v == "" %}<span class="muted">—</span>{% elif v is True %}да{% elif v is False %}нет{% else %}{{ v }}{% endif %}</dd>{% endfor %}
   {% for k, v in extra.items %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
 </div>
 

@@ -5,11 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Реестр описей{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'web/app.css' %}">
+  <link rel="icon" href="{% static 'web/icon.svg' %}" type="image/svg+xml">
 </head>
 <body>
 <div class="shell">
   <nav class="side" aria-label="Разделы">
-    <div class="brand">Реестр описей</div>
+    <a class="brand" href="{% url 'home' %}">Реестр описей</a>
+    <a href="{% url 'home' %}" class="{% if nav == 'home' %}on{% endif %}">Обзор</a>
     <a href="{% url 'review_list' %}" class="{% if nav == 'review' %}on{% endif %}">На просмотр
       {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
     <a href="{% url 'import_page' %}" class="{% if nav == 'import' %}on{% endif %}">Импорт</a>

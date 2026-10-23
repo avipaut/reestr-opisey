@@ -2,13 +2,35 @@
 {% block title %}Описи — Реестр описей{% endblock %}
 {% block content %}
 <h1>Описи</h1>
-<p class="sub">Актуальная опись каждого узла{% if date %} на {{ date }}{% endif %}. Щелчок — позиции описи и её версии.</p>
+<p class="sub">Актуальная опись каждого узла{% if date %} на {{ date }}{% endif %}. Щелчок — позиции описи и её версии; щелчок по заголовку столбца — порядок.</p>
 <form class="filters" method="get">
   <label class="wide">Учреждение, файл или организация<input type="text" name="q" value="{{ q }}"></label>
   <label class="wide">Учреждение (с подведами){% with np_node=node %}{% include "web/_node_picker.html" %}{% endwith %}</label>
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
+  {% if f.sort != "node" %}<input type="hidden" name="sort" value="{{ f.sort }}">{% endif %}
   <button class="btn primary" type="submit">Показать</button>
-  {% if q or node or date %}<a class="btn" href="?">Сбросить</a>{% endif %}
+  {% if f.active %}<a class="btn" href="?">Сбросить</a>{% endif %}
+  <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
+  <details class="more"{% if f.more_active %} open{% endif %}>
+    <summary>Ещё фильтры{% if f.more_active %} <span class="tag">заданы</span>{% endif %}</summary>
+    <div class="filters">
+      <label>Пометка «ПРОВЕРИТЬ»<select name="check"><option value="">все</option>
+        <option value="1" {% if f.check == "1" %}selected{% endif %}>есть</option>
+        <option value="0" {% if f.check == "0" %}selected{% endif %}>нет</option></select></label>
+      <label>Сверка с источником<select name="recon"><option value="">все</option>
+        {% for k, label in f.RECON.items %}<option value="{{ k }}" {% if f.recon == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label class="wide">Вид источника<select name="kind" class="full"><option value="">все</option>
+        {% for k in kinds %}<option value="{{ k }}" {% if f.kind == k %}selected{% endif %}>{{ k|truncatechars:90 }}</option>{% endfor %}</select></label>
+      <label class="wide">Основа стоимостей<select name="basis" class="full"><option value="">все</option>
+        {% for b in bases %}<option value="{{ b }}" {% if f.basis == b %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></label>
+      <label>Позиций от<input type="text" name="rows_min" value="{{ f.rows_min|default_if_none:'' }}" size="6" inputmode="numeric"></label>
+      <label>до<input type="text" name="rows_max" value="{{ f.rows_max|default_if_none:'' }}" size="6" inputmode="numeric"></label>
+      <label>Стоимость от<input type="text" name="cost_min" value="{{ f.cost_min|default_if_none:'' }}" size="9" inputmode="decimal"></label>
+      <label>до<input type="text" name="cost_max" value="{{ f.cost_max|default_if_none:'' }}" size="9" inputmode="decimal"></label>
+      <label>Принята с<input type="date" name="acc_from" value="{{ f.acc_from|date:'Y-m-d' }}"></label>
+      <label>по<input type="date" name="acc_to" value="{{ f.acc_to|date:'Y-m-d' }}"></label>
+    </div>
+  </details>
 </form>
 <div class="tiles">
   <div class="tile"><div class="k">Описей</div><div class="v">{{ tot.n|num }}</div></div>
@@ -19,15 +41,25 @@
 <div class="card">
   {% if page.object_list %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Узел</th><th>Файл</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th>Дата источника</th><th>Принята</th><th class="n">Версий</th></tr></thead>
+    <thead><tr>
+      <th class="node"><a class="sort{% if f.sort == 'node' %} on{% endif %}" href="{{ sorts.node }}">Узел{% if f.sort == 'node' %} ↑{% endif %}</a></th>
+      <th>Файл</th>
+      <th class="n"><a class="sort{% if f.sort == 'rows' %} on{% endif %}" href="{{ sorts.rows }}">Позиций{% if f.sort == 'rows' %} ↓{% endif %}</a></th>
+      <th class="n"><a class="sort{% if f.sort == 'qty' %} on{% endif %}" href="{{ sorts.qty }}">Количество, шт.{% if f.sort == 'qty' %} ↓{% endif %}</a></th>
+      <th class="n"><a class="sort{% if f.sort == 'cost' %} on{% endif %}" href="{{ sorts.cost }}">Первонач. стоимость, сом{% if f.sort == 'cost' %} ↓{% endif %}</a></th>
+      <th>Дата источника</th>
+      <th><a class="sort{% if f.sort == 'new' %} on{% endif %}" href="{{ sorts.new }}">Принята{% if f.sort == 'new' %} ↓{% endif %}</a></th>
+      <th class="n"><a class="sort{% if f.sort == 'versions' %} on{% endif %}" href="{{ sorts.versions }}">Версий{% if f.sort == 'versions' %} ↓{% endif %}</a></th>
+    </tr></thead>
     <tbody>{% for inv in page.object_list %}<tr>
-      <td><a href="{% url 'inventory_detail' inv.pk %}">{{ inv.node.trail }}</a></td>
+      <td class="node"><a href="{% url 'inventory_detail' inv.pk %}">{{ inv.node.trail|default:"узел не указан" }}</a></td>
       <td class="wrap muted">{{ inv.source_file.name }}{% if inv.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
       <td class="n">{{ inv.rows|num }}</td><td class="n">{{ inv.qty|num }}</td><td class="n">{{ inv.cost_initial|num:2 }}</td>
       <td class="nw">{{ inv.source_date|date:"d.m.Y"|default:"—" }}</td><td class="nw muted">{{ inv.valid_from|date:"d.m.Y H:i" }}</td>
       <td class="n">{{ inv.versions }}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% with qs=qs_base.urlencode %}{% include "web/_pager.html" %}{% endwith %}
-  {% else %}<div class="empty"><b>Описей нет</b>Описи появляются после приёма на экране «На просмотр».</div>{% endif %}
+  {% elif f.active %}<div class="empty"><b>По этим условиям описей нет</b><a href="?">Сбросить фильтры</a></div>
+  {% else %}<div class="empty"><b>Описей нет</b>Описи появляются после чтения папки на экране «Импорт».</div>{% endif %}
 </div>
 {% endblock %}
