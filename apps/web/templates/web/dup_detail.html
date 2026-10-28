@@ -1,0 +1,45 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Группа похожих описей №{{ g.pk }} — Реестр описей{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{% url 'dups' %}">Дубли описей</a><span class="sep">/</span><span>группа №{{ g.pk }}</span></p>
+<h1>{{ g.node.trail }}</h1>
+<p class="sub">Похожие описи учреждения: строки объединены, повторы строк другой описи группы не в своде.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Описей</div><div class="v">{{ members|length }}</div><div class="d muted">основа: {{ g.base.source_file.name|default:"—" }}</div></div>
+  <div class="tile"><div class="k">Строк во всех описях</div><div class="v">{{ g.rows_before|num }}</div><div class="d muted">после объединения: {{ g.rows_after|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ g.cost_before|num:0 }}</div><div class="d muted">после объединения: {{ g.cost_after|num:0 }}</div></div>
+  <div class="tile"><div class="k">Не в своде, сом</div><div class="v">{{ gone|num:0 }}</div><div class="d muted">повторов строк: {{ dups|num }}</div></div>
+</div>
+
+<form class="filters" method="get">
+  <button class="btn" type="submit" name="export" value="xlsx" title="Описи группы и все их строки с отметкой: в своде, повтор чьей строки, сверить; лист «Параметры»">Выгрузить группу в Excel</button>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Опись</th><th class="n">Строк</th><th class="n" title="Повторы строк другой описи группы, найденные по инв. номеру, стоимости и количеству">Повт. по инв. ном.</th>
+      <th class="n" title="Повторы, найденные по наименованию, стоимости и количеству — если у одной из строк нет инв. номера">Повт. по наим.</th>
+      <th class="n" title="Своих строк — входят в свод">Своих</th><th class="n" title="Тот же инв. номер есть в группе с другой стоимостью или количеством">Сверить</th><th class="n" title="Первонач. стоимость повторов — не в своде">Стоим. повторов, сом</th></tr></thead>
+    <tbody>{% for i in members %}<tr>
+      <td class="wrap"><a href="{% url 'inventory_detail' i.pk %}">{{ i.source_file.name }}</a>{% if i.is_base %} <span class="tag">основа</span>{% endif %}{% if i.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
+      <td class="n">{{ i.rows|num }}</td>
+      <td class="n">{% if i.s1 %}<a href="{{ i.urls.dup }}">{{ i.s1|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="n">{% if i.s2 %}<a href="{{ i.urls.dup }}">{{ i.s2|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="n"><a href="{{ i.urls.own }}">{{ i.own|num }}</a></td>
+      <td class="n">{% if i.chk %}<a href="{{ i.urls.check }}">{{ i.chk|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="n">{% if i.dup_cost %}{{ i.dup_cost|num:0 }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+{% if check %}
+<div class="card"><h2>Сверить — тот же инв. номер с другой стоимостью или количеством, считаются разными позициями{% if check|length == 200 %} · первые 200, все — в выгрузке{% endif %}</h2><div class="tbl-wrap"><table class="data">
+  <thead><tr><th>Инв. номер</th><th>Основное средство</th><th class="n">Количество</th><th class="n">Первонач. стоимость, сом</th><th>Опись</th><th class="n">Строка</th></tr></thead>
+  <tbody>{% for it in check %}<tr>
+    <td class="nw">{{ it.inv_no }}</td><td class="wrap">{{ it.name }}</td><td class="n">{{ it.qty|num:3 }}</td><td class="n">{{ it.cost_initial|num:2 }}</td>
+    <td class="wrap muted">{{ it.inventory.source_file.name }}</td><td class="n"><a href="{% url 'item_detail' it.pk %}">{{ it.row_no }}</a></td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
+{% endblock %}

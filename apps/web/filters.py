@@ -15,6 +15,10 @@ SUSPECT_CHOICES = [("any", "все подозрительные"), ("held", "н�
                    ("high", "дороже порога"), ("low", "дешевле порога"), ("neg", "отрицательная"),
                    ("text", "буквы вместо числа")]
 
+# Дубли описей (apps.imports.dedup): повтор строки другой описи группы — не в своде.
+DUP_CHOICES = [("dup", "повторы строк других описей (не в своде)"), ("own", "свои строки (в своде)"),
+               ("check", "сверить: тот же инв. номер с другой ценой или количеством")]
+
 SHEETS = ["Опись", "Вынесено", "Ручная валидация"]
 
 
@@ -63,6 +67,7 @@ class ItemFilter:
         self.marked = g.get("marked") == "1"
         # Подозрительная стоимость (вкладка «Подозрительные»): причина, «held» — не в своде, «ok» — подтверждена.
         self.suspect = g.get("suspect") if g.get("suspect") in ("any", "held", "ok", "text", "neg", "low", "high") else ""
+        self.dup = g.get("dup") if g.get("dup") in dict(DUP_CHOICES) else ""
         qs = base if base is not None else Item.objects.filter(inventory__in=inventories_at(self.at))
         if self.node:
             qs = qs.filter(inventory__node__path__startswith=self.node.path)
@@ -96,13 +101,19 @@ class ItemFilter:
             qs = qs.exclude(suspect="")
         elif self.suspect:
             qs = qs.filter(suspect=self.suspect)
+        if self.dup == "dup":
+            qs = qs.filter(dup_of__isnull=False)
+        elif self.dup == "own":
+            qs = qs.filter(dup_of__isnull=True)
+        elif self.dup == "check":
+            qs = qs.exclude(dup_check="")
         self.qs = qs
 
     @property
     def active(self):
         return any([self.q, self.node, self.code, self.status, self.priority, self.otype, self.sheet,
                     self.cost_min is not None, self.cost_max is not None, self.marked, self.suspect,
-                    self.date])
+                    self.dup, self.date])
 
     def params(self):
         p = [("На дату", self.date or "актуальные описи"),
@@ -111,7 +122,8 @@ class ItemFilter:
                          ("Приоритет", self.priority), ("Тип объекта", self.otype), ("Лист", self.sheet),
                          ("Первонач. стоимость от", self.cost_min), ("до", self.cost_max),
                          ("Только с отметками", "да" if self.marked else ""),
-                         ("Подозрительная стоимость", dict(SUSPECT_CHOICES).get(self.suspect, ""))):
+                         ("Подозрительная стоимость", dict(SUSPECT_CHOICES).get(self.suspect, "")),
+                         ("Дубли описей", dict(DUP_CHOICES).get(self.dup, ""))):
             if v not in (None, ""):
                 p.append((label, str(v)))
         return p
@@ -239,7 +251,7 @@ def inventory_choices():
 
 def choices():
     return {
-        "statuses": Status.objects.filter(is_active=True), "suspect_choices": SUSPECT_CHOICES,
+        "statuses": Status.objects.filter(is_active=True), "suspect_choices": SUSPECT_CHOICES, "dup_choices": DUP_CHOICES,
         "otypes": ObjectType.objects.all(),
         "sheets": SHEETS,
         "priorities": ["1", "2", "3", "4", "5", "0"],

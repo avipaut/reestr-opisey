@@ -11,6 +11,7 @@
   {% if not hide_date %}<label>На дату<input type="date" name="date" value="{{ f.date }}"></label>{% endif %}
   <label class="check"><input type="checkbox" name="marked" value="1" {% if f.marked %}checked{% endif %}> с отметками</label>
   <label>Подозрительная стоимость<select name="suspect"><option value="">все позиции</option>{% for v, label in suspect_choices %}<option value="{{ v }}" {% if f.suspect == v %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Дубли описей<select name="dup"><option value="">все позиции</option>{% for v, label in dup_choices %}<option value="{{ v }}" {% if f.dup == v %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
   <button class="btn primary" type="submit">Найти</button>
   {% if f.active %}<a class="btn" href="?">Сбросить</a><button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>{% endif %}
 </form>

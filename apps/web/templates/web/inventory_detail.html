@@ -8,7 +8,7 @@
   {% if inv.source_date %} · дата источника {{ inv.source_date|date:"d.m.Y" }}{% endif %}</p>
 
 <div class="tiles">
-  <div class="tile"><div class="k">Позиций</div><div class="v">{{ inv.rows|num }}</div>{% if inv.rows_excluded %}<div class="d muted">из них мер (не в своде): {{ inv.rows_excluded|num }}</div>{% endif %}{% if inv.rows_held %}<div class="d"><a class="minus" href="?suspect=held">подозрительных (не в своде до «Верно»): {{ inv.rows_held|num }}</a></div>{% endif %}</div>
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ inv.rows|num }}</div>{% if inv.rows_excluded %}<div class="d muted">из них мер (не в своде): {{ inv.rows_excluded|num }}</div>{% endif %}{% if inv.rows_held %}<div class="d"><a class="minus" href="?suspect=held">подозрительных (не в своде до «Верно»): {{ inv.rows_held|num }}</a></div>{% endif %}{% if inv.rows_dup %}<div class="d"><a class="minus" href="?dup=dup">повторов строк других описей (не в своде): {{ inv.rows_dup|num }}</a></div>{% endif %}{% if inv.dup_group_id %}<div class="d"><a href="{% url 'dup_detail' inv.dup_group_id %}">группа похожих описей №{{ inv.dup_group_id }}</a></div>{% endif %}</div>
   <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ inv.qty|num }}</div></div>
   <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ inv.cost_initial|num:2 }}</div></div>
   <div class="tile"><div class="k">Накоп. износ, сом</div><div class="v">{{ inv.depreciation|num:2 }}</div></div>

@@ -190,6 +190,9 @@ def run(link=None, progress=None, nodes=None):
             progress(done, len(nodes))
 
     with transaction.atomic():
+        # Предел запроса для веба — 30 с; второй этап импорта поднимает его для себя, как импорт.
+        with connection.cursor() as c:
+            c.execute("SET LOCAL statement_timeout = '1800s'")
         Item.objects.filter(item_scope, dup_of__isnull=False).update(dup_of=None, dup_step=0)
         Item.objects.filter(item_scope).exclude(dup_check="").update(dup_check="")
         Inventory.objects.filter(scope, dup_group__isnull=False).update(dup_group=None)
@@ -227,7 +230,13 @@ def _write_marks(marks):
             part = rows[a:a + 10000]
             c.execute("insert into _dup values " + ",".join(["(%s,%s,%s)"] * len(part)),
                       [x for r in part for x in r])
-        c.execute(f"update {Item._meta.db_table} i set dup_of_id=d.of, dup_step=d.step from _dup d where i.id=d.item")
+        # Пачками по номеру строки: одно обновление сотен тысяч строк держит блокировки долго.
+        c.execute("select min(item), max(item) from _dup")
+        lo, hi = c.fetchone()
+        step = 50000
+        for a in range(lo, hi + 1, step):
+            c.execute(f"update {Item._meta.db_table} i set dup_of_id=d.of, dup_step=d.step from _dup d "
+                      "where i.id=d.item and d.item >= %s and d.item < %s", [a, a + step])
 
 
 def _group_totals(ids):

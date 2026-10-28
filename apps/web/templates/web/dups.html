@@ -1,0 +1,42 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Дубли описей — Реестр описей{% endblock %}
+{% block content %}
+<h1>Дубли описей</h1>
+<p class="sub">Группы похожих актуальных описей одного учреждения: листы одной книги, пересохранённые и сокращённые варианты одной описи.</p>
+<p class="measure"><b>Повтор строки другой описи группы не входит в своды, итоги, количество и стоимости.</b> Описи связываются, если строк меньшей, найденных в большей по инв. номеру или наименованию вместе со стоимостью и количеством, не меньше порога. Тот же инв. номер с другой стоимостью или количеством — разные позиции с пометкой «сверить». Группы пересобираются после каждого обхода.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Групп</div><div class="v">{{ agg.groups|num }}</div><div class="d muted">описей в них: {{ invs.n|num }}</div></div>
+  <div class="tile"><div class="k">Строк во всех описях групп</div><div class="v">{{ agg.rb|num }}</div><div class="d muted">после объединения: {{ agg.ra|num }}</div></div>
+  <div class="tile"><div class="k">Повторов — не в своде</div><div class="v">{{ invs.dup|num }} <span class="muted d">строк</span></div><div class="d muted">первонач. стоимость: {{ gone|num:0 }} сом</div></div>
+  <div class="tile"><div class="k">Сверить</div><div class="v">{{ check|num }} <span class="muted d">строк</span></div><div class="d muted">тот же инв. номер, другая цена или количество</div></div>
+</div>
+
+<form class="filters" method="get">
+  <label>Учреждение<input type="search" name="q" value="{{ q }}" placeholder="наименование или код"></label>
+  <button class="btn" type="submit">Показать</button>
+  <button class="btn" type="submit" name="export" value="xlsx" title="Группы и их описи; лист «Параметры»">Выгрузить в Excel</button>
+</form>
+
+<div class="card">
+  {% if page.object_list %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Учреждение</th><th class="n">Описей</th><th>Основа — опись, где больше всего строк</th>
+      <th class="n" title="Строк во всех описях группы (кроме мер и подозрительных)">Строк всего</th><th class="n">После объединения</th>
+      <th class="n" title="Первонач. стоимость во всех описях группы">Стоимость всего, сом</th><th class="n" title="Первонач. стоимость повторов — не в своде">Не в своде, сом</th></tr></thead>
+    <tbody>{% for g in page %}<tr>
+      <td class="node"><a href="{% url 'dup_detail' g.pk %}" title="Описи группы и их строки">{{ g.node.trail }}</a></td>
+      <td class="n">{{ g.n|num }}</td>
+      <td class="wrap muted">{{ g.base.source_file.name|default:"—" }}</td>
+      <td class="n">{{ g.rows_before|num }}</td>
+      <td class="n">{{ g.rows_after|num }}</td>
+      <td class="n">{{ g.cost_before|num:0 }}</td>
+      <td class="n">{% if g.gone %}<b>{{ g.gone|num:0 }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% with qs=pager_qs %}{% include "web/_pager.html" %}{% endwith %}
+  {% else %}
+  <div class="empty"><b>Групп нет</b>{% if q %}У учреждений с «{{ q }}» похожих описей не нашлось.{% else %}Похожих описей у одного учреждения не нашлось.{% endif %}</div>
+  {% endif %}
+</div>
+{% endblock %}

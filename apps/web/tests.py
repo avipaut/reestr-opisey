@@ -683,3 +683,41 @@ class SuspectsTests(TransactionTestCase):
         self.assertEqual(why, {("Холодильник", None): "дороже порога — похоже на код счёта с номером",
                                ("Стул", "2"): "дешевле порога, но больше 0",
                                ("Шкаф", "3"): "не число: «сто сом»"})
+
+
+@override_settings(AUTO_ACCEPT=True)
+class DupScreensTests(TransactionTestCase):
+    """«Дубли описей»: группы видны в вебе и выгружаются (пользователь 28.10.2026: «пускай
+    в вебе показывается. С возможностью выгрузки оттуда»)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        folder = os.path.join(self.root, "126", "8. Тест")
+        make_book(os.path.join(folder, "ОСВ — ОС.xlsx"), BASE + [row("Шкаф", "31123110", "Основной список", inv="30")])
+        make_book(os.path.join(folder, "ОСВ — Sheet1.xlsx"), BASE)
+        services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_groups_page_detail_and_exports(self):
+        from apps.inventories.models import DupGroup
+        g = DupGroup.objects.get()
+        r = self.client.get(reverse("dups"))
+        self.assertContains(r, reverse("dup_detail", args=[g.pk]))
+        self.assertContains(self.client.get(reverse("dups") + "?q=нет-такого"), "Групп нет")
+        r = self.client.get(reverse("dup_detail", args=[g.pk]))
+        self.assertContains(r, "ОСВ — Sheet1.xlsx")
+        self.assertContains(r, "основа")
+        wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("dups") + "?export=xlsx").content))
+        self.assertEqual(wb.sheetnames, ["Группы", "Описи", "Параметры"])
+        self.assertEqual(wb["Группы"]["G2"].value, 3, "повторов — все строки меньшей описи")
+        wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("dup_detail", args=[g.pk]) + "?export=xlsx").content))
+        self.assertEqual(wb.sheetnames, ["Описи", "Позиции", "Параметры"])
+        marks = [r[7] for r in wb["Позиции"].iter_rows(min_row=2, values_only=True)]
+        self.assertEqual((marks.count("повтор — не в своде"), marks.count("в своде")), (3, 4))
+        # Позиции описи — отбор «повторы».
+        small = Inventory.objects.get(source_file__name="ОСВ — Sheet1.xlsx")
+        r = self.client.get(reverse("inventory_detail", args=[small.pk]) + "?dup=dup")
+        self.assertContains(r, "повторов строк других описей")
