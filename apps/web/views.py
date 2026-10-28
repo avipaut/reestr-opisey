@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from apps.imports import services as imports
+from apps.imports import dedup, services as imports
 from apps.imports.models import ScanRun
 from apps.inventories.models import Inventory, Status
 from apps.orgs.models import Node
@@ -137,6 +137,8 @@ def review_decide(request, pk):
             if request.POST.get("node"):
                 node = get_object_or_404(Node, pk=request.POST["node"])
             inv = imports.accept(inv, user=request.user, node=node)
+            # Состав актуальных узла сменился — его группы похожих описей пересобираются.
+            dedup.run(nodes=[inv.node_id])
             messages.success(request, f"Принята: {inv.source_file.name} — актуальная опись узла {inv.node}")
         elif action == "reject":
             imports.reject(inv, user=request.user)

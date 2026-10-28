@@ -145,6 +145,9 @@ AUTO_ACCEPT = env("AUTO_ACCEPT", "1") == "1"
 # manage.py recheck_suspects.
 SUSPECT_HIGH = env("SUSPECT_HIGH", "1000000000")
 SUSPECT_LOW = env("SUSPECT_LOW", "1")
+# Дубли описей (apps.imports.dedup): описи одного узла связываются в группу, если общих строк
+# не меньше этой доли меньшей описи (решение для настольного скрипта 16.10.2026 — 80%).
+DUP_LINK = float(env("DUP_LINK", "0.8"))
 # Журналы обходов (ошибки по файлам); в тестах — во временную папку.
 IMPORT_LOG_DIR = BASE_DIR / "logs" / "import"
 if "test" in __import__("sys").argv:

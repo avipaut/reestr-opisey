@@ -19,7 +19,7 @@ from apps.inventories.models import Inventory, Item, Status
 from apps.orgs.models import FolderMapping, Node
 from apps.stats import services as stats
 
-from . import services
+from . import dedup, services
 from .models import ScanRun
 from .reader import parse_book
 
@@ -425,10 +425,64 @@ class RetireRootTests(TransactionTestCase):
             make_book(os.path.join(new, "126", "опись.xlsx"), BASE[:2])
             services.scan([old], workers=1)
             services.scan([new], workers=1)
-            self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 7, "до снятия — двойной счёт")
+            # Обе описи одного узла, строки новой целиком в старой — повторы, в своде один раз
+            # (дубли описей, 28.10.2026); раньше здесь был двойной счёт 7.
+            self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 5, "до снятия — повторы в своде")
             call_command("retire_root", old, stdout=open(os.devnull, "w"))
             self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 2)
             self.assertEqual(Inventory.objects.count(), 2, "ничего не удалено")
         finally:
             shutil.rmtree(old, ignore_errors=True)
             shutil.rmtree(new, ignore_errors=True)
+
+
+@override_settings(AUTO_ACCEPT=True)
+class DedupTests(TransactionTestCase):
+    """Дубли описей (apps.imports.dedup): лист той же книги и пересохранённый вариант у
+    одного учреждения считались дважды (Департамент дорожного хозяйства, 28.10.2026)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.folder = os.path.join(self.root, "126", "8. Тестовое ДНВТ")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_similar_inventories_are_merged_as_multisets(self):
+        stools = [row("Табурет", "31123110", "Основной список", inv="", cost=900) for _ in range(3)]
+        full = BASE + stools + [row("Шкаф", "31123110", "Основной список", inv="30", cost=700)]
+        # Вариант: табуретов два, у компьютера другая цена, принтер без номера.
+        part = [row("Компьютер", "31123130", "Основной список", inv="10", cost=12000),
+                row("принтер ", "31123120", "Резерв", qty=None, inv="", cost=10000),
+                row("Стул", "31123110", "Не требует оценки", qty=3, inv="12"),
+                row("Шкаф", "31123110", "Основной список", inv="30", cost=700)] + stools[:2]
+        make_book(os.path.join(self.folder, "опись — ОС.xlsx"), full)
+        make_book(os.path.join(self.folder, "опись — Sheet1.xlsx"), part)
+        # Чужая опись другого учреждения с теми же строками — не дубль.
+        make_book(os.path.join(self.root, "126", "9. Другое ДНВТ", "опись.xlsx"),
+                  full + [row("Сейф", "31123110", "Основной список", inv="40")])
+        services.scan([self.root], workers=1)
+        big = Inventory.objects.get(source_file__name="опись — ОС.xlsx")
+        small = Inventory.objects.get(source_file__name="опись — Sheet1.xlsx")
+        other = Inventory.objects.get(source_file__name="опись.xlsx")
+        self.assertTrue(big.is_current and small.is_current)
+        big.refresh_from_db(), small.refresh_from_db(), other.refresh_from_db()
+        self.assertIsNotNone(big.dup_group_id)
+        self.assertEqual(big.dup_group_id, small.dup_group_id)
+        self.assertIsNone(other.dup_group_id)
+        # Повторы — в меньшей: принтер (по наименованию, у одной нет номера), стул и шкаф (по
+        # номеру), два табурета; компьютер с другой ценой — своя строка, «сверить».
+        dup = dict(Item.objects.filter(inventory=small, dup_of__isnull=False).values_list("name", "dup_step")
+                   .order_by("name"))
+        self.assertEqual(Item.objects.filter(inventory=small, dup_of__isnull=False).count(), 5)
+        self.assertEqual(dup, {"принтер": 2, "Стул": 1, "Табурет": 2, "Шкаф": 1})
+        self.assertEqual(Item.objects.get(inventory=small, name="Компьютер").dup_check, "cost")
+        self.assertEqual((big.rows_dup, small.rows_dup), (0, 5))
+        # В свод меньшей описи вошёл только компьютер.
+        self.assertEqual(small.cost_initial, 12000)
+        g = big.dup_group
+        self.assertEqual((g.base_id, g.rows_before, g.rows_after), (big.pk, 13, 8))
+        # Повторный проход по готовой базе даёт то же самое.
+        dedup.run()
+        small.refresh_from_db()
+        self.assertEqual(small.rows_dup, 5)

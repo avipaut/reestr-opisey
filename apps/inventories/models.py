@@ -133,6 +133,11 @@ class Inventory(models.Model):
     rows_held = models.IntegerField("отложено до проверки (подозрительные)", default=0)
     rows_no_code = models.IntegerField("без рекомендуемого кода", default=0)
     codes = models.IntegerField("разных кодов учёта", default=0)
+    # Дубли описей (apps.imports.dedup): группа похожих описей того же узла и сколько строк
+    # этой описи — повторы строк других описей группы (в свод не входят).
+    dup_group = models.ForeignKey("DupGroup", null=True, blank=True, on_delete=models.SET_NULL,
+                                  related_name="inventories", verbose_name="группа похожих описей")
+    rows_dup = models.IntegerField("повторы строк других описей (не в своде)", default=0)
 
     class Meta:
         verbose_name = "опись"
@@ -152,6 +157,24 @@ class Inventory(models.Model):
         if self.loaded_via == self.Via.UPLOAD:
             return f"с компьютера: {self.loaded_from}"
         return self.loaded_from or self.source_file.path
+
+
+class DupGroup(models.Model):
+    """Группа похожих описей одного узла (apps.imports.dedup): описи связаны, если строки
+    меньшей почти целиком есть в большей. Строки группы объединяются: повтор строки
+    другой описи в свод не входит. Группы пересобираются вторым этапом каждого обхода."""
+    node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="dup_groups", verbose_name="узел")
+    base = models.ForeignKey(Inventory, null=True, on_delete=models.SET_NULL, related_name="+",
+                             verbose_name="основа (больше всего строк)")
+    made_at = models.DateTimeField("собрана", auto_now_add=True)
+    rows_before = models.IntegerField("строк во всех описях", default=0)
+    rows_after = models.IntegerField("строк после объединения", default=0)
+    cost_before = models.DecimalField("первонач. стоимость во всех описях", max_digits=20, decimal_places=2, default=0)
+    cost_after = models.DecimalField("первонач. стоимость после объединения", max_digits=20, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "группа похожих описей"
+        verbose_name_plural = "группы похожих описей"
 
 
 class Item(models.Model):
@@ -175,6 +198,15 @@ class Item(models.Model):
     suspect_ok_at = models.DateTimeField("стоимость подтверждена", null=True, blank=True)
     suspect_ok_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
                                       related_name="+", verbose_name="кто подтвердил")
+    # Повтор строки другой описи той же группы похожих описей (apps.imports.dedup): строка,
+    # которую повторяет, и ступень сопоставления; в свод, итоги и количество не входит.
+    # «Сверить» — тот же инв. номер есть в группе с другой стоимостью или количеством.
+    dup_of = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                               verbose_name="повтор строки")
+    dup_step = models.SmallIntegerField("ступень сопоставления", default=0,
+                                        help_text="1 — инв. номер, стоимость, количество; 2 — наименование, стоимость, количество")
+    dup_check = models.CharField("сверить с группой", max_length=8, blank=True,
+                                 help_text="cost — тот же инв. номер с другой стоимостью; qty — с другим количеством")
     inv_no = models.TextField("инв. номер", blank=True)
     inv_key = models.TextField("ключ позиции", blank=True, db_index=True)
     cost_initial = models.DecimalField("первонач. стоимость", **MONEY)

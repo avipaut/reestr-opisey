@@ -10,6 +10,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from apps.inventories.models import Inventory, SourceFile
+from apps.imports import dedup
 from apps.imports.services import retire
 
 
@@ -29,5 +30,9 @@ class Command(BaseCommand):
             retire(inv, now)
             n += 1
         SourceFile.objects.filter(root=root).update(missing=True)
+        # Состав актуальных сменился — дубли описей пересобираются (повторы снятых снова в своде).
+        if n:
+            res = dedup.run()
+            self.stdout.write("дубли описей: " + ", ".join(f"{k} {v}" for k, v in res.items()))
         left = Inventory.objects.filter(is_current=True).count()
         self.stdout.write(f"снято с актуальных: {n}; актуальных описей осталось: {left}")

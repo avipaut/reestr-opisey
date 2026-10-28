@@ -8,8 +8,9 @@ from apps.orgs.models import Node
 from .models import VersionStat
 
 # В свод входят штуки (не меры) и не отложенные: подозрительная стоимость, не подтверждённая
-# на вкладке «Подозрительные» (решение пользователя 28.10.2026).
-COUNTED = Q(excluded=False, held=False)
+# на вкладке «Подозрительные» (решение пользователя 28.10.2026), и не повторы строк другой
+# описи той же группы похожих описей (apps.imports.dedup, решение 28.10.2026).
+COUNTED = Q(excluded=False, held=False, dup_of__isnull=True)
 
 
 def open_stats(inventory, at):
@@ -29,7 +30,7 @@ def open_stats(inventory, at):
 
 
 TOTALS = ["rows", "qty", "cost_initial", "cost_balance", "depreciation", "rows_excluded", "rows_held",
-          "rows_no_code", "codes"]
+          "rows_no_code", "codes", "rows_dup"]
 
 
 def fill_totals(inventory):
@@ -41,6 +42,7 @@ def fill_totals(inventory):
         cost_balance=Sum("cost_balance", filter=inc), depreciation=Sum("depreciation", filter=inc),
         rows_excluded=Count("id", filter=Q(excluded=True)), rows_held=Count("id", filter=Q(excluded=False, held=True)),
         rows_no_code=Count("id", filter=Q(recommended_code="")),
+        rows_dup=Count("id", filter=Q(dup_of__isnull=False)),
         codes=Count("recommended_code", distinct=True, filter=~Q(recommended_code="")))
     for f in TOTALS:
         setattr(inventory, f, agg[f] or 0)
@@ -105,6 +107,11 @@ def rebuild_stats(inventory):
     """Пересчитать свод версии после исправления данных — с прежним сроком
     действия (это исправление, а не новое событие истории)."""
     old = list(VersionStat.objects.filter(inventory=inventory).values_list("valid_from", "valid_to").distinct())
+    # Строк свода нет, когда все позиции были вне свода (все повторы других описей или все
+    # подозрительные) — тогда срок действия берётся у самой версии описи, иначе вернувшиеся
+    # в свод позиции некуда открыть.
+    if not old and inventory.valid_from:
+        old = [(inventory.valid_from, inventory.valid_to)]
     VersionStat.objects.filter(inventory=inventory).delete()
     for vf, vt in old:
         open_stats(inventory, vf)

@@ -27,7 +27,7 @@ from apps.orgs.services import ensure_path
 from apps.stats import services as stats
 from apps.stats.models import VersionStat
 
-from . import suspects
+from . import dedup, suspects
 from .models import ScanFile, ScanRun
 from .reader import parse_book
 
@@ -261,6 +261,19 @@ def scan(roots=None, workers=None, run=None, processed_only=True, mark_missing=T
             _progress(run, every=5)
             del parsed, inv
         files.flush()
+        # Второй этап — дубли описей по всей базе (решение пользователя 28.10.2026: «вызывать
+        # его после импорта всего что попалось»). Нечего пересобирать — ничего не принято и
+        # ничего не снято с актуальных.
+        if run.accepted or run.missing:
+            run.stage, run.current = "дубли описей", ""
+            _progress(run, force=True)
+            try:
+                res = dedup.run()
+                notes.append("дубли описей: " + ", ".join(f"{k} {v}" for k, v in res.items()))
+            except Exception as e:
+                log.exception("дубли описей не пересобраны")
+                notes.append(f"дубли описей не пересобраны: {type(e).__name__}: {e}")
+                run.errors += 1
         run.state = ScanRun.State.DONE_ERRORS if run.errors else ScanRun.State.DONE
     except Cancelled:
         files.flush()
@@ -604,6 +617,14 @@ def accept_many(ids, user=None, job=None):
                 notes.append(f"{pk}: {e}")
         if n % 25 == 0:
             job.save(update_fields=["done", "failed"])
+    # Принятые вручную меняют состав актуальных — дубли пересобираются, как после обхода.
+    if job.done:
+        try:
+            res = dedup.run()
+            notes.append("дубли описей: " + ", ".join(f"{k} {v}" for k, v in res.items()))
+        except Exception as e:
+            log.exception("дубли описей не пересобраны")
+            notes.append(f"дубли описей не пересобраны: {type(e).__name__}: {e}")
     job.finished_at, job.log = timezone.now(), "\n".join(notes)
     job.save()
     return job
