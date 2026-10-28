@@ -138,6 +138,12 @@ class Inventory(models.Model):
     dup_group = models.ForeignKey("DupGroup", null=True, blank=True, on_delete=models.SET_NULL,
                                   related_name="inventories", verbose_name="группа похожих описей")
     rows_dup = models.IntegerField("повторы строк других описей (не в своде)", default=0)
+    # Год описи (дата источника, без неё — год в имени файла) и более новая опись той же
+    # группы: опись старше самого нового года группы устарела и в свод не входит целиком
+    # (решение пользователя 28.10.2026 «Надо брать только актуальное»).
+    year = models.SmallIntegerField("год описи", null=True, blank=True)
+    outdated_by = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                                    verbose_name="устарела — новее опись")
 
     class Meta:
         verbose_name = "опись"

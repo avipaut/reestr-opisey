@@ -9,8 +9,9 @@ from .models import VersionStat
 
 # В свод входят штуки (не меры) и не отложенные: подозрительная стоимость, не подтверждённая
 # на вкладке «Подозрительные» (решение пользователя 28.10.2026), и не повторы строк другой
-# описи той же группы похожих описей (apps.imports.dedup, решение 28.10.2026).
-COUNTED = Q(excluded=False, held=False, dup_of__isnull=True)
+# описи той же группы похожих описей и не строки устаревшей описи — в группе есть опись
+# более нового года (apps.imports.dedup, решения 28.10.2026).
+COUNTED = Q(excluded=False, held=False, dup_of__isnull=True, inventory__outdated_by__isnull=True)
 
 
 def open_stats(inventory, at):

@@ -3,7 +3,7 @@
 {% block content %}
 <p class="crumbs"><a href="{% url 'dups' %}">Дубли описей</a><span class="sep">/</span><span>группа №{{ g.pk }}</span></p>
 <h1>{{ g.node.trail }}</h1>
-<p class="sub">Похожие описи учреждения: строки объединены, повторы строк другой описи группы не в своде.</p>
+<p class="sub">Похожие описи учреждения: строки объединены, повторы строк другой описи группы не в своде. Опись года старше самого нового в группе устарела и в свод не входит целиком.</p>
 
 <div class="tiles">
   <div class="tile"><div class="k">Описей</div><div class="v">{{ members|length }}</div><div class="d muted">основа: {{ g.base.source_file.name|default:"—" }}</div></div>
@@ -18,11 +18,12 @@
 
 <div class="card">
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Опись</th><th class="n">Строк</th><th class="n" title="Повторы строк другой описи группы, найденные по инв. номеру, стоимости и количеству">Повт. по инв. ном.</th>
+    <thead><tr><th>Опись</th><th class="n" title="По дате источника, без неё — по году в имени файла">Год</th><th class="n">Строк</th><th class="n" title="Повторы строк другой описи группы, найденные по инв. номеру, стоимости и количеству">Повт. по инв. ном.</th>
       <th class="n" title="Повторы, найденные по наименованию, стоимости и количеству — если у одной из строк нет инв. номера">Повт. по наим.</th>
       <th class="n" title="Своих строк — входят в свод">Своих</th><th class="n" title="Тот же инв. номер есть в группе с другой стоимостью или количеством">Сверить</th><th class="n" title="Первонач. стоимость повторов — не в своде">Стоим. повторов, сом</th></tr></thead>
     <tbody>{% for i in members %}<tr>
-      <td class="wrap"><a href="{% url 'inventory_detail' i.pk %}">{{ i.source_file.name }}</a>{% if i.is_base %} <span class="tag">основа</span>{% endif %}{% if i.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
+      <td class="wrap"><a href="{% url 'inventory_detail' i.pk %}">{{ i.source_file.name }}</a>{% if i.is_base %} <span class="tag">основа</span>{% endif %}{% if i.outdated_by_id %} <span class="tag warn" title="В группе есть опись {{ i.outdated_by.year }} года — эта в свод не входит целиком">устарела — не в своде</span>{% endif %}{% if i.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
+      <td class="n">{{ i.year|default:"—" }}</td>
       <td class="n">{{ i.rows|num }}</td>
       <td class="n">{% if i.s1 %}<a href="{{ i.urls.dup }}">{{ i.s1|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="n">{% if i.s2 %}<a href="{{ i.urls.dup }}">{{ i.s2|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>

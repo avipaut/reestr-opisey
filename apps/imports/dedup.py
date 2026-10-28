@@ -24,6 +24,13 @@
    столько, сколько их больше всего в одной описи группы.
 4. Разное количество или стоимость при том же инв. номере — разные позиции (ответа
    пользователя пока нет), строка помечается «сверить» (dup_check).
+5. Годы (решение пользователя 28.10.2026: «валидацию по описям. по годам. Надо брать
+   только актуальное»): год описи — по дате источника (из имени исходного файла), без неё —
+   наибольший год 20xx в имени файла описи, без него — в имени исходного файла. Опись
+   группы, чей год старше самого нового года группы, устарела
+   (outdated_by) и в свод не входит целиком; объединяются только описи нового года и
+   описи без года. Повод — «Кадамжай РайОО»: актуальны книги 2024 и 2025 годов, и
+   объединение оставляло в своде списанное к 2025-му.
 
 Пометки пересобираются целиком при каждом проходе: что было повтором, а теперь нет
 (опись заменена новой версией, порог сменили), снова входит в свод.
@@ -43,6 +50,7 @@ from apps.stats import services as stats
 log = logging.getLogger(__name__)
 
 _JUNK = re.compile(r"[\W_]+", re.U)
+_YEAR = re.compile(r"(?<!\d)(20[0-4]\d)(?!\d)")
 FIELDS = ("id", "inventory_id", "inv_key", "name", "cost_initial", "qty")
 
 
@@ -56,6 +64,29 @@ def _num(v):
         return ""
     s = format(v, "f")
     return s.rstrip("0").rstrip(".") if "." in s else s
+
+
+def year_of(source_date, *names):
+    """Год описи: дата источника, без неё — наибольший год 20xx в первом из имён, где он
+    есть (имя файла описи, затем имя исходного файла); None — не известен."""
+    if source_date:
+        return source_date.year
+    for n in names:
+        found = [int(y) for y in _YEAR.findall(n or "")]
+        if found:
+            return max(found)
+    return None
+
+
+def _split_years(members, years):
+    """(описи нового года и без года, {устаревшая опись: опись нового года})."""
+    known = [years[i] for i in members if years[i]]
+    if len(set(known)) < 2:
+        return members, {}
+    newest = max(known)
+    keep = [i for i in members if years[i] is None or years[i] == newest]
+    head = next(i for i in keep if years[i] == newest)
+    return keep, {i: head for i in members if years[i] and years[i] < newest}
 
 
 def _keys(row):
@@ -162,11 +193,15 @@ def run(link=None, progress=None, nodes=None):
     item_scope = Q() if nodes is None else Q(inventory__node_id__in=list(nodes))
     nodes = list(Inventory.objects.filter(scope, is_current=True, node__isnull=False).values("node_id")
                  .annotate(n=Count("id")).filter(n__gt=1).values_list("node_id", flat=True))
-    before = dict(Inventory.objects.filter(scope, rows_dup__gt=0).values_list("id", "rows_dup"))
-    marks, checks, groups = {}, {}, []
+    before = {i: (d, o) for i, d, o in Inventory.objects.filter(scope).filter(
+        Q(rows_dup__gt=0) | Q(outdated_by__isnull=False)).values_list("id", "rows_dup", "outdated_by_id")}
+    marks, checks, groups, outdated, years = {}, {}, [], {}, {}
     for done, node_id in enumerate(nodes, 1):
-        invs = list(Inventory.objects.filter(is_current=True, node_id=node_id).values_list("id", "rows"))
-        size = dict(invs)
+        invs = list(Inventory.objects.filter(is_current=True, node_id=node_id).values_list(
+            "id", "rows", "source_date", "source_file__name", "source_name"))
+        size = {i: n for i, n, *_ in invs}
+        for i, _, d, *names in invs:
+            years[i] = year_of(d, *names)
         rows_by_inv = defaultdict(list)
         for row in Item.objects.filter(inventory_id__in=size).values_list(*FIELDS).iterator(chunk_size=20000):
             rows_by_inv[row[1]].append(row)
@@ -181,10 +216,12 @@ def run(link=None, progress=None, nodes=None):
             probe[i], allk[i] = p, a
         for members in _groups(probe, allk, link):
             members.sort(key=lambda i: (-len(rows_by_inv[i]), i))
-            dups, check = _merge(members, rows_by_inv)
+            keep, old = _split_years(members, years)
+            dups, check = _merge(keep, rows_by_inv) if len(keep) > 1 else ({}, {})
             marks.update(dups)
             checks.update(check)
-            groups.append((node_id, members, dups))
+            outdated.update(old)
+            groups.append((node_id, members, keep[0]))
         del rows_by_inv
         if progress:
             progress(done, len(nodes))
@@ -196,6 +233,7 @@ def run(link=None, progress=None, nodes=None):
         Item.objects.filter(item_scope, dup_of__isnull=False).update(dup_of=None, dup_step=0)
         Item.objects.filter(item_scope).exclude(dup_check="").update(dup_check="")
         Inventory.objects.filter(scope, dup_group__isnull=False).update(dup_group=None)
+        Inventory.objects.filter(scope, outdated_by__isnull=False).update(outdated_by=None)
         DupGroup.objects.filter(scope).delete()
         _write_marks(marks)
         by_check = defaultdict(list)
@@ -205,18 +243,26 @@ def run(link=None, progress=None, nodes=None):
             for a in range(0, len(ids), 5000):
                 Item.objects.filter(pk__in=ids[a:a + 5000]).update(dup_check=why)
         made = []
-        for node_id, members, dups in groups:
-            g = DupGroup.objects.create(node_id=node_id, base_id=members[0])
+        for node_id, members, base in groups:
+            g = DupGroup.objects.create(node_id=node_id, base_id=base)
             Inventory.objects.filter(pk__in=members).update(dup_group=g)
             made.append(g.pk)
-        touched = set(before) | {i for _, members, dups in groups for i in members}
+        for old, new in outdated.items():
+            Inventory.objects.filter(pk=old).update(outdated_by=new)
+        by_year = defaultdict(list)
+        for i, y in years.items():
+            by_year[y].append(i)
+        for y, ids in by_year.items():
+            Inventory.objects.filter(pk__in=ids).update(year=y)
+        touched = set(before) | {i for _, members, _ in groups for i in members}
         for inv in Inventory.objects.filter(pk__in=touched):
             stats.fill_totals(inv)
-            if inv.rows_dup != before.get(inv.pk, 0):
+            if (inv.rows_dup, inv.outdated_by_id) != before.get(inv.pk, (0, None)):
                 stats.rebuild_stats(inv)
         _group_totals(made)
     return {"групп": len(groups), "описей в группах": sum(len(m) for _, m, _ in groups),
-            "повторов строк": len(marks), "сверить": len(checks), "узлов": len(nodes)}
+            "повторов строк": len(marks), "сверить": len(checks), "устаревших описей": len(outdated),
+            "узлов": len(nodes)}
 
 
 def _write_marks(marks):
@@ -245,7 +291,8 @@ def _group_totals(ids):
     base = Q(excluded=False, held=False)
     for g in DupGroup.objects.filter(pk__in=ids):
         agg = Item.objects.filter(base, inventory__dup_group=g).aggregate(
-            rb=Count("id"), ra=Count("id", filter=Q(dup_of__isnull=True)),
-            cb=Sum("cost_initial"), ca=Sum("cost_initial", filter=Q(dup_of__isnull=True)))
+            rb=Count("id"), ra=Count("id", filter=Q(dup_of__isnull=True, inventory__outdated_by__isnull=True)),
+            cb=Sum("cost_initial"),
+            ca=Sum("cost_initial", filter=Q(dup_of__isnull=True, inventory__outdated_by__isnull=True)))
         DupGroup.objects.filter(pk=g.pk).update(rows_before=agg["rb"] or 0, rows_after=agg["ra"] or 0,
                                                 cost_before=agg["cb"] or 0, cost_after=agg["ca"] or 0)

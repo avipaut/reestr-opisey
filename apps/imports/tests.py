@@ -486,3 +486,39 @@ class DedupTests(TransactionTestCase):
         dedup.run()
         small.refresh_from_db()
         self.assertEqual(small.rows_dup, 5)
+
+
+@override_settings(AUTO_ACCEPT=True)
+class DedupYearsTests(TransactionTestCase):
+    """Годы описей в группе: опись старше самого нового года не в своде целиком
+    («Кадамжай РайОО»: книги 2024 и 2025 годов, списанное к 2025-му оставалось в своде)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.folder = os.path.join(self.root, "126", "8. Тестовое ДНВТ")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_year_of(self):
+        self.assertEqual(dedup.year_of(dt.date(2023, 5, 1), "опись 2025.xlsx"), 2023)
+        self.assertEqual(dedup.year_of(None, "Инвентарь 2025 общ. — исфайрам — опись.xlsx"), 2025)
+        self.assertEqual(dedup.year_of(None, "ОС 2023-2024 — опись.xlsx"), 2024)
+        self.assertIsNone(dedup.year_of(None, "бпатп опись — 120250 — опись.xlsx"))
+
+    def test_older_year_is_out_of_stats(self):
+        # Дата источника читается из имени исходного файла в строках описи — у книги 2024 года свой.
+        old_rows = [r[:29] + [r[29].replace("18.11. 2025", "18.11. 2024")] + r[30:]
+                    for r in BASE + [row("Шкаф", "31123110", "Основной список", inv="30", cost=700)]]
+        make_book(os.path.join(self.folder, "инвентаризация 2024 — опись.xlsx"), old_rows)
+        make_book(os.path.join(self.folder, "Инвентарь 2025 — опись.xlsx"), BASE)
+        services.scan([self.root], workers=1)
+        old = Inventory.objects.get(source_file__name__contains="2024")
+        new = Inventory.objects.get(source_file__name__contains="2025")
+        self.assertEqual((old.year, new.year), (2024, 2025))
+        self.assertEqual(old.outdated_by_id, new.pk)
+        self.assertIsNone(new.outdated_by_id)
+        # В своде — только опись 2025 года, шкаф (списан к 2025-му) не считается; повторов нет.
+        self.assertEqual((old.cost_initial, new.cost_initial, new.rows_dup), (0, 30000, 0))
+        self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 5)
+        self.assertEqual(old.dup_group.base_id, new.pk)
