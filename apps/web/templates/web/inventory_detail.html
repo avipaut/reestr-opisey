@@ -7,6 +7,35 @@
   {% if inv.valid_from %} · действует с {{ inv.valid_from|date:"d.m.Y H:i" }}{% if inv.valid_to %} по {{ inv.valid_to|date:"d.m.Y H:i" }}{% endif %}{% endif %}
   {% if inv.source_date %} · дата источника {{ inv.source_date|date:"d.m.Y" }}{% endif %}</p>
 
+<div class="tiles">
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ inv.rows|num }}</div>{% if inv.rows_excluded %}<div class="d muted">из них мер (не в своде): {{ inv.rows_excluded|num }}</div>{% endif %}{% if inv.rows_held %}<div class="d"><a class="minus" href="?suspect=held">подозрительных (не в своде до «Верно»): {{ inv.rows_held|num }}</a></div>{% endif %}</div>
+  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ inv.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ inv.cost_initial|num:2 }}</div></div>
+  <div class="tile"><div class="k">Накоп. износ, сом</div><div class="v">{{ inv.depreciation|num:2 }}</div></div>
+  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ inv.cost_balance|num:2 }}</div></div>
+  <div class="tile"><div class="k">Кодов учёта</div><div class="v">{{ inv.codes|num }}</div>{% if inv.rows_no_code %}<div class="d muted">позиций без кода: {{ inv.rows_no_code|num }}</div>{% endif %}</div>
+</div>
+
+<div class="card"><h2>Откуда и когда загружена</h2>
+  <dl class="kv two pad">
+    <dt>Загружена</dt><dd>{{ inv.parsed_at|date:"d.m.Y H:i" }}</dd>
+    <dt>Как</dt><dd>{{ inv.get_loaded_via_display|default:"—" }}{% if inv.scan_run_id %} · <a href="{% url 'scan_detail' inv.scan_run_id %}">обход № {{ inv.scan_run_id }}</a>{% endif %}</dd>
+    <dt>Откуда</dt><dd>{{ inv.loaded_where }}</dd>
+    <dt>Кто загрузил</dt><dd>{% if inv.loaded_by %}{{ inv.loaded_by.get_username }}{% else %}<span class="muted">{% if inv.loaded_via %}по расписанию или командой{% else %}—{% endif %}</span>{% endif %}</dd>
+    <dt>Файл изменён</dt><dd>{{ inv.file_mtime|date:"d.m.Y H:i"|default:"—" }}</dd>
+    <dt>Размер файла</dt><dd>{% if inv.file_size %}{{ inv.file_size|filesizeformat }}{% else %}—{% endif %}</dd>
+    {% if inv.decided_at %}<dt>Принята</dt><dd>{{ inv.decided_at|date:"d.m.Y H:i" }}{% if inv.decided_by %} · {{ inv.decided_by.get_username }}{% else %} · сама при обходе{% endif %}</dd>{% endif %}
+    {% if inv.loaded_where != inv.source_file.path %}<dt>Файл сейчас</dt><dd>{{ inv.source_file.path }}{% if inv.source_file.missing %} <span class="tag warn">нет в папке</span>{% endif %}</dd>{% elif inv.source_file.missing %}<dt>Файл сейчас</dt><dd><span class="tag warn">нет в папке</span></dd>{% endif %}
+  </dl>
+</div>
+
+{% for title, head, rows in breakdown %}{% if rows|length > 1 or forloop.first %}
+<div class="card"><details class="list"><summary>{{ title }} <span class="muted">{{ rows|length }}</span></summary>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>{{ head }}</th><th class="n">Позиций</th><th class="n" title="Меры и подозрительные стоимости до «Верно»">Не в своде</th><th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th class="n">Балансовая, сом</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td class="wrap">{{ r.k|default:"—" }}</td><td class="n">{{ r.rows|num }}</td><td class="n {% if not r.excl %}muted{% endif %}">{{ r.excl|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n">{{ r.cost|num:2 }}</td><td class="n">{{ r.bal|num:2 }}</td></tr>{% endfor %}</tbody></table></div>
+</details></div>
+{% endif %}{% endfor %}
+
 {% if versions|length > 1 %}
 <div class="card"><details class="list"><summary>Версии описи узла <span class="muted">{{ versions|length }}</span></summary>
   <div class="tbl-wrap"><table class="data"><thead><tr><th>Действует с</th><th>по</th><th>Файл</th><th class="n">Позиций</th><th class="n">Количество</th><th class="n">Первонач. стоимость</th><th></th></tr></thead>

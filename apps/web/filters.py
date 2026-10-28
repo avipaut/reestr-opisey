@@ -11,6 +11,10 @@ from apps.imports.reader import inv_key, norm
 from apps.inventories.models import Inventory, Item, ObjectType, Reconciliation, Status
 from apps.orgs.models import Node
 
+SUSPECT_CHOICES = [("any", "все подозрительные"), ("held", "не в своде — ждут «Верно»"), ("ok", "подтверждённые"),
+                   ("high", "дороже порога"), ("low", "дешевле порога"), ("neg", "отрицательная"),
+                   ("text", "буквы вместо числа")]
+
 SHEETS = ["Опись", "Вынесено", "Ручная валидация"]
 
 
@@ -57,6 +61,8 @@ class ItemFilter:
         self.sheet = g.get("sheet") if g.get("sheet") in SHEETS else ""
         self.cost_min, self.cost_max = _dec(g.get("cost_min")), _dec(g.get("cost_max"))
         self.marked = g.get("marked") == "1"
+        # Подозрительная стоимость (вкладка «Подозрительные»): причина, «held» — не в своде, «ok» — подтверждена.
+        self.suspect = g.get("suspect") if g.get("suspect") in ("any", "held", "ok", "text", "neg", "low", "high") else ""
         qs = base if base is not None else Item.objects.filter(inventory__in=inventories_at(self.at))
         if self.node:
             qs = qs.filter(inventory__node__path__startswith=self.node.path)
@@ -82,12 +88,21 @@ class ItemFilter:
             qs = qs.filter(cost_initial__lte=self.cost_max)
         if self.marked:
             qs = qs.exclude(user_mark="", name_fill="")
+        if self.suspect == "held":
+            qs = qs.filter(held=True)
+        elif self.suspect == "ok":
+            qs = qs.exclude(suspect="").filter(suspect_ok_at__isnull=False)
+        elif self.suspect == "any":
+            qs = qs.exclude(suspect="")
+        elif self.suspect:
+            qs = qs.filter(suspect=self.suspect)
         self.qs = qs
 
     @property
     def active(self):
         return any([self.q, self.node, self.code, self.status, self.priority, self.otype, self.sheet,
-                    self.cost_min is not None, self.cost_max is not None, self.marked, self.date])
+                    self.cost_min is not None, self.cost_max is not None, self.marked, self.suspect,
+                    self.date])
 
     def params(self):
         p = [("На дату", self.date or "актуальные описи"),
@@ -95,7 +110,8 @@ class ItemFilter:
         for label, v in (("Текст", self.q), ("Код учёта", self.code), ("Статус", self.status),
                          ("Приоритет", self.priority), ("Тип объекта", self.otype), ("Лист", self.sheet),
                          ("Первонач. стоимость от", self.cost_min), ("до", self.cost_max),
-                         ("Только с отметками", "да" if self.marked else "")):
+                         ("Только с отметками", "да" if self.marked else ""),
+                         ("Подозрительная стоимость", dict(SUSPECT_CHOICES).get(self.suspect, ""))):
             if v not in (None, ""):
                 p.append((label, str(v)))
         return p
@@ -223,7 +239,7 @@ def inventory_choices():
 
 def choices():
     return {
-        "statuses": Status.objects.filter(is_active=True),
+        "statuses": Status.objects.filter(is_active=True), "suspect_choices": SUSPECT_CHOICES,
         "otypes": ObjectType.objects.all(),
         "sheets": SHEETS,
         "priorities": ["1", "2", "3", "4", "5", "0"],

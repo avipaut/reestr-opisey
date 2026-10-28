@@ -1,0 +1,1 @@
+<fieldset class="statuses"><legend>Статусы</legend>{% for s in all_statuses %}<label class="check"><input type="checkbox" name="status" value="{{ s.pk }}" {% if s.pk in sel_ids %}checked{% endif %}> {{ s.name }}</label>{% endfor %}</fieldset>

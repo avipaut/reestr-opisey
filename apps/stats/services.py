@@ -2,24 +2,50 @@
 
 from django.db.models import Count, Q, Sum
 
-from apps.inventories.models import Item
+from apps.inventories.models import Inventory, Item
 from apps.orgs.models import Node
 
 from .models import VersionStat
 
+# В свод входят штуки (не меры) и не отложенные: подозрительная стоимость, не подтверждённая
+# на вкладке «Подозрительные» (решение пользователя 28.10.2026).
+COUNTED = Q(excluded=False, held=False)
+
 
 def open_stats(inventory, at):
     """Посчитать свод версии по её позициям и открыть строки с момента at."""
-    rows = (Item.objects.filter(inventory=inventory, excluded=False)  # меры (материалы, запасы) — не штуки
+    rows = (Item.objects.filter(COUNTED, inventory=inventory)  # меры (материалы, запасы) — не штуки
             .values("recommended_code", "status_id", "priority", "object_type_id")
-            .annotate(n=Count("id"), q=Sum("qty"), ci=Sum("cost_initial"), cb=Sum("cost_balance")))
+            .annotate(n=Count("id"), q=Sum("qty"), ci=Sum("cost_initial"), cb=Sum("cost_balance"),
+                      dep=Sum("depreciation")))
     VersionStat.objects.bulk_create([
         VersionStat(inventory=inventory, node_id=inventory.node_id, code=r["recommended_code"] or "",
                     status_id=r["status_id"], priority=r["priority"], object_type_id=r["object_type_id"],
                     rows=r["n"], qty=r["q"] or 0, cost_initial=r["ci"] or 0, cost_balance=r["cb"] or 0,
+                    depreciation=r["dep"] or 0,
                     valid_from=at)
         for r in rows
     ])
+
+
+TOTALS = ["rows", "qty", "cost_initial", "cost_balance", "depreciation", "rows_excluded", "rows_held",
+          "rows_no_code", "codes"]
+
+
+def fill_totals(inventory):
+    """Итоги описи по её позициям. Количество и деньги — без мер (как в своде);
+    строк — все, меры и отложенные (подозрительные) отдельно."""
+    inc = COUNTED
+    agg = Item.objects.filter(inventory=inventory).aggregate(
+        rows=Count("id"), qty=Sum("qty", filter=inc), cost_initial=Sum("cost_initial", filter=inc),
+        cost_balance=Sum("cost_balance", filter=inc), depreciation=Sum("depreciation", filter=inc),
+        rows_excluded=Count("id", filter=Q(excluded=True)), rows_held=Count("id", filter=Q(excluded=False, held=True)),
+        rows_no_code=Count("id", filter=Q(recommended_code="")),
+        codes=Count("recommended_code", distinct=True, filter=~Q(recommended_code="")))
+    for f in TOTALS:
+        setattr(inventory, f, agg[f] or 0)
+    Inventory.objects.filter(pk=inventory.pk).update(**{f: getattr(inventory, f) for f in TOTALS})
+    return inventory
 
 
 def close_stats(inventory, at):

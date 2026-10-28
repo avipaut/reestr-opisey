@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.paginator import Paginator
-from django.db.models import Count, Sum
+from django.db.models import Count, Max, Sum
 from django.db.models.functions import Length, Substr
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,6 +23,7 @@ from apps.orgs.models import Node
 from apps.stats import services as stats
 
 from .compare import compare
+from .filters import inventories_at
 from .xlsx import xlsx_response
 
 
@@ -72,7 +73,9 @@ def home(request):
         "pending": Inventory.objects.filter(state=Inventory.State.PENDING).count(),
         "last_run": ScanRun.objects.defer("log").first(),
         "running": ScanRun.objects.filter(finished_at__isnull=True).only("id", "started_at", "roots").first(),
-        "recent": recent, "nav": "home"})
+        "recent": recent, "by_status": _by_status(timezone.now(), None, []),
+        "held": Inventory.objects.filter(is_current=True, rows_held__gt=0).aggregate(n=Count("id"), rows=Sum("rows_held")),
+        "nav": "home"})
 
 
 # ------------------------------------------------------------------ просмотр
@@ -99,13 +102,14 @@ def review_list(request):
 def scan_now(request):
     """«Проверить сейчас» — в очередь фоновых задач; в разработке без
     обработчика очереди — сразу (та же функция)."""
+    run = ScanRun.objects.create(stage="в очереди", by=request.user)  # кто запустил — в описи
     if settings.DEBUG and request.POST.get("sync", "1") == "1":
-        run = imports.scan()
+        run = imports.scan(run=run)
         messages.info(request, f"Обход: {run.get_state_display()}, новых на просмотр — {run.pending}, "
                                f"ошибок — {run.errors}")
     else:
         from django_q.tasks import async_task
-        async_task("apps.imports.tasks.scan_task")
+        async_task("apps.imports.tasks.scan_task", None, run.pk)
         messages.info(request, "Обход поставлен в очередь")
     return redirect("review_list")
 
@@ -187,6 +191,7 @@ def stats_codes(request):
 def stats_orgs(request):
     at, date_raw = _when(request)
     parent = _node(request, "parent")
+    sel = _statuses(request)
     children = list(Node.objects.filter(parent=parent).order_by("path"))
     cells = defaultdict(lambda: defaultdict(Decimal))
     codes = set()
@@ -194,7 +199,8 @@ def stats_orgs(request):
     # (прежде — запрос на каждого ребёнка: 44 у учреждений).
     child_of = {n.path: n.pk for n in children}
     depth = (parent.path if parent else "/").count("/")
-    for r in stats.stats_at(at, parent).values("node__path", "code").annotate(q=Sum("qty")):
+    base = stats.stats_at(at, parent).filter(status__in=sel) if sel else stats.stats_at(at, parent)
+    for r in base.values("node__path", "code").annotate(q=Sum("qty")):
         cid = child_of.get("/".join(r["node__path"].split("/")[:depth + 1]) + "/")
         if cid is not None:
             cells[cid][r["code"]] += r["q"] or 0
@@ -216,11 +222,139 @@ def stats_orgs(request):
                              ["Учреждение", *[f"Σ {g.name}, шт." for g in groups], *[f"{c or '—'}, шт." for c in codes], "Итого, шт."],
                              rows, ["Итого", *gtotals, *totals, sum(totals)],
                              _params(request, at, parent, "Код × учреждение")
+                             + [("Статусы", ", ".join(st.name for st in sel) or "все")]
                              + [(f"Σ {g.name}", f"сумма кодов, начинающихся с {g.prefixes}") for g in groups])
     return render(request, "web/stats_orgs.html", {
         "codes": codes, "table": table, "totals": totals, "grand": sum(totals), "date": date_raw, "asof": at,
-        "groups": groups, "gtotals": gtotals,
+        "groups": groups, "gtotals": gtotals, "all_statuses": Status.objects.filter(is_active=True),
+        "sel": sel, "sel_ids": {st.pk for st in sel}, "keep": _keep(date_raw, sel),
         "parent": parent, "crumbs": _crumbs(parent), "nav": "orgs"})
+
+
+SUB_KEYS = ["nodes", "invs", "rows", "excl", "held", "qty", "ci", "dep", "cb"]
+SUM_AS = {"qty": "qty", "ci": "cost_initial", "dep": "depreciation", "cb": "cost_balance"}
+
+
+def _statuses(request):
+    """Отбор по статусам (?status=1&status=4); пусто — все статусы."""
+    ids = [x for x in request.GET.getlist("status") if x.isdigit()]
+    return list(Status.objects.filter(pk__in=ids)) if ids else []
+
+
+def _keep(date_raw, statuses, empty=False):
+    """Условия отбора для ссылок вглубь дерева."""
+    from urllib.parse import urlencode
+    return urlencode([("date", date_raw)] + [("status", st.pk) for st in statuses] + ([("empty", "1")] if empty else []))
+
+
+@login_required
+def stats_nodes(request):
+    """Свод по подведам: у каждого ребёнка узла — узлов с описями, описей, позиций,
+    количество и стоимости по его поддереву на дату, когда принята последняя версия;
+    по статусам — таблица ниже. Без отбора по статусам — по итогам действовавших
+    описей (в т. ч. описей из одних мер — их нет в своде версий); с отбором — по
+    своду версий (меры в него не входят). Строки — детям по пути узла."""
+    at, date_raw = _when(request)
+    parent = _node(request, "parent")
+    sel = _statuses(request)
+    children = list(Node.objects.filter(parent=parent).order_by("path"))
+    child_of = {n.path: n.pk for n in children}
+    depth = (parent.path if parent else "/").count("/")
+    acc = defaultdict(lambda: dict.fromkeys(SUB_KEYS, 0) | {"last": None})
+    sums = {k: Sum(f) for k, f in SUM_AS.items()}
+    if sel:
+        rows = stats.stats_at(at, parent).filter(status__in=sel).values("node__path").annotate(
+            invs=Count("inventory", distinct=True), rows=Sum("rows"), last=Max("valid_from"), **sums)
+    else:
+        qs = inventories_at(at if date_raw else None)
+        if parent:
+            qs = qs.filter(node__path__startswith=parent.path)
+        rows = qs.values("node__path").annotate(invs=Count("id"), rows=Sum("rows"), excl=Sum("rows_excluded"),
+                                                held=Sum("rows_held"), last=Max("valid_from"), **sums)
+    for r in rows.order_by():
+        path = r["node__path"] or ""
+        key = "own" if parent and path == parent.path else child_of.get("/".join(path.split("/")[:depth + 1]) + "/")
+        if key is None:
+            continue
+        a = acc[key]
+        r["nodes"] = 1
+        for k in SUB_KEYS:
+            a[k] += r.get(k) or 0
+        a["last"] = max(filter(None, [a["last"], r["last"]]), default=None)
+    has_kids = set(Node.objects.filter(parent__in=children).values_list("parent_id", flat=True))
+    table = [{"node": n, **acc[n.pk], "drill": n.pk in has_kids} for n in children]
+    if request.GET.get("empty") != "1":
+        table = [t for t in table if t["invs"]]
+    own = acc["own"] if "own" in acc else None
+    totals = {k: sum(t[k] for t in table) + (own[k] if own else 0) for k in SUB_KEYS}
+    by_status = _by_status(at, parent, sel)
+    own_invs = []
+    if parent:
+        own_invs = list(inventories_at(at if date_raw else None).filter(node=parent).select_related("source_file", "loaded_by")
+                        .defer("summary_lines", "unknown_columns", "proposed_path").order_by("source_file__name"))
+        if sel:
+            has = set(stats.stats_at(at, parent).filter(node=parent, status__in=sel).values_list("inventory_id", flat=True))
+            own_invs = [i for i in own_invs if i.pk in has]
+    params = _params(request, at, parent, "Свод по подведам") + [
+        ("Статусы", ", ".join(st.name for st in sel) or "все")]
+    if request.GET.get("export") == "xlsx":
+        return _stats_nodes_xlsx(parent, own, table, totals, by_status, sel, params)
+    return render(request, "web/stats_nodes.html", {
+        "table": table, "own": own, "own_invs": own_invs, "totals": totals, "date": date_raw, "asof": at,
+        "by_status": by_status, "all_statuses": Status.objects.filter(is_active=True), "sel_ids": {st.pk for st in sel},
+        "sel": sel, "keep": _keep(date_raw, sel, request.GET.get("empty") == "1"),
+        "parent": parent, "crumbs": _crumbs(parent), "nav": "subs"})
+
+
+def _by_status(at, node, sel):
+    """Статистика по статусам по поддереву узла на дату — по своду версий (без мер):
+    описей, позиций, количество, стоимости, доля в количестве."""
+    qs = stats.stats_at(at, node)
+    if sel:
+        qs = qs.filter(status__in=sel)
+    rows = list(qs.values("status_id", "status__name").annotate(
+        invs=Count("inventory", distinct=True), rows=Sum("rows"), **{k: Sum(f) for k, f in SUM_AS.items()}))
+    order = {name: i for i, name in enumerate(_status_order())}
+    rows.sort(key=lambda r: (order.get(r["status__name"], len(order)), r["status__name"] or ""))
+    total_qty = sum(r["qty"] or 0 for r in rows)
+    for r in rows:
+        r["share"] = (r["qty"] or 0) * 100 / total_qty if total_qty else 0
+    return rows
+
+
+def _stats_nodes_xlsx(parent, own, table, totals, by_status, sel, params):
+    from .xlsx import write_xlsx, xlsx_file
+
+    def when(v):
+        return timezone.localtime(v).strftime("%d.%m.%Y %H:%M") if v else ""
+
+    keys = [k for k in SUB_KEYS if not (sel and k in ("excl", "held"))]
+    heads = {"nodes": "Узлов с описями", "invs": "Описей", "rows": "Позиций", "excl": "Из них мер (не в своде)", "held": "Подозрительные (не в своде до «Верно»)",
+             "qty": "Количество, шт.", "ci": "Первонач. стоимость, сом", "dep": "Накоп. износ, сом",
+             "cb": "Балансовая стоимость, сом"}
+
+    def line(label, t):
+        return [label, *[t[k] for k in keys], when(t["last"])]
+
+    def rows():
+        if own:
+            yield line(f"{parent.label} — свои описи", own)
+        for t in table:
+            yield line(t["node"].label, t)
+        yield ["Итого", *[totals[k] for k in keys], ""]
+
+    def status_rows():
+        for r in by_status:
+            yield [r["status__name"] or "без статуса", r["invs"], r["rows"], r["qty"], r["ci"], r["dep"], r["cb"],
+                   round(r["share"], 2)]
+
+    return xlsx_file("Свод по подведам", write_xlsx([
+        ("Подведы", ["Подвед" if parent else "Учреждение", *[heads[k] for k in keys], "Последняя версия принята"],
+         rows, {"filter": True, "widths": {1: 50}}),
+        ("По статусам", ["Статус", "Описей", "Позиций", "Количество, шт.", "Первонач. стоимость, сом",
+                         "Накоп. износ, сом", "Балансовая стоимость, сом", "Доля в количестве, %"],
+         status_rows, {"filter": True, "widths": {1: 30}}),
+        ("Параметры", None, lambda: [("Параметр", "Значение"), *params], {"widths": {1: 26, 2: 80}})]))
 
 
 def _params(request, at, node, view):

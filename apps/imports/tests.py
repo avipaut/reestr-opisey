@@ -152,6 +152,31 @@ class ScanTests(TransactionTestCase):
         self.assertIn("копия:", run.log)
         self.assertEqual(Inventory.objects.count(), 1)
 
+    def test_inventory_knows_source_and_totals(self):
+        """Опись помнит, откуда, каким обходом загружена и файл на тот момент;
+        итоги — по позициям (меры — отдельно, в количество и деньги не входят)."""
+        path = os.path.join(self.folder, "опись.xlsx")
+        make_book(path, BASE + [row("т", "31123130", "Основной список", qty=2.5, inv="20", cost=500),
+                                row("Шкаф", "", "Основной список", inv="21", cost=700)])
+        run = self.scan()
+        inv = Inventory.objects.get()
+        st = os.stat(path)
+        self.assertEqual((inv.loaded_via, inv.loaded_from, inv.scan_run_id, inv.loaded_by_id),
+                         (Inventory.Via.FOLDER, path, run.pk, None))
+        self.assertEqual(inv.loaded_where, path)
+        self.assertEqual(inv.file_size, st.st_size)
+        self.assertLess(abs(inv.file_mtime.timestamp() - st.st_mtime), 1)
+        self.assertEqual((inv.rows, inv.rows_excluded, inv.rows_no_code, inv.codes), (5, 1, 1, 3))
+        self.assertEqual((inv.qty, inv.cost_initial, inv.depreciation), (6, 30700, 0))
+        # Файл переписан — у новой версии свой снимок, у прежней остался прежний.
+        time.sleep(1.1)
+        make_book(path, BASE)
+        self.scan()
+        old, new = Inventory.objects.order_by("pk")
+        self.assertEqual(old.file_size, st.st_size)
+        self.assertEqual(new.file_size, os.stat(path).st_size)
+        self.assertNotEqual(old.scan_run_id, new.scan_run_id)
+
     def test_accept_creates_nodes_and_stats(self):
         make_book(os.path.join(self.folder, "опись.xlsx"), BASE)
         self.scan()

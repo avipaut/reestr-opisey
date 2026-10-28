@@ -279,3 +279,18 @@ table.data th.grp, table.data td.grp { background: #f2f6fb; font-weight: 600; }
 .danger-zone h2 { color: var(--bad); }
 .wide-p { flex: 1 1 100%; margin: 0; }
 #sc-stop { margin: 8px 0; }
+/* Отбор по статусам — галочки в строку */
+.filters fieldset.statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; border: 0; margin: 0; padding: 0; }
+.filters fieldset.statuses legend { font-size: 12px; color: var(--ink-2); padding: 0; margin-bottom: 4px; }
+.filters fieldset.statuses label.check { height: 32px; font-size: 13px; color: var(--ink); }
+/* Доля — полоска с числом (статусы на «Обзоре») */
+td.share { white-space: nowrap; min-width: 160px; }
+td.share .bar { display: inline-block; width: 100px; height: 8px; margin-right: 8px; vertical-align: middle; background: var(--line); border-radius: 4px; overflow: hidden; }
+td.share .bar i { display: block; height: 100%; background: var(--accent); }
+/* «Подозрительные»: вид, не выбранный в отборе, — бледнее */
+.tile.off { opacity: .55; }
+.tile .v .d { font-weight: 400; }
+/* Вкладки внутри страницы («Подозрительные»: ждут «Верно» / подтверждённые) */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
+.tabs a { padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; color: var(--ink-2); text-decoration: none; margin-bottom: -1px; }
+.tabs a.on { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 600; }

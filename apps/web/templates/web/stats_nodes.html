@@ -1,0 +1,62 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Свод по подведам — Реестр описей{% endblock %}
+{% block content %}
+<h1>Свод по подведам</h1>
+<p class="sub">У каждого {% if parent %}подведа{% else %}учреждения{% endif %} — сумма по нему и всем его подведам. Щелчок по названию — его подведы.</p>
+<p class="measure"><b>По описям, действовавшим на дату.</b> {% if sel %}Отобраны позиции со статусами: {% for s in sel %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}; описей — где такие позиции есть. Меры (материалы и запасы: дробное количество, единица вместо названия) и неподтверждённые подозрительные стоимости не входят.{% else %}Позиции — все строки описей; меры (материалы и запасы: дробное количество, единица вместо названия) и позиции с подозрительной стоимостью, пока она не подтверждена на вкладке «Подозрительные», показаны отдельно и в количество и стоимости не входят — как в своде по кодам.{% endif %} «Последняя версия» — когда принята самая свежая опись в поддереве.</p>
+
+<form class="filters" method="get">
+  {% if parent %}<input type="hidden" name="parent" value="{{ parent.pk }}">{% endif %}
+  <label>На дату<input type="date" name="date" value="{{ date }}"></label>
+  {% include "web/_status_filter.html" %}
+  <label class="check"><input type="checkbox" name="empty" value="1" {% if request.GET.empty == "1" %}checked{% endif %}> и без описей</label>
+  <button class="btn" type="submit">Показать</button>
+  <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
+</form>
+<p class="asof">Показано на {{ asof|date:"d.m.Y H:i" }}{% if not date %} — сейчас{% endif %}</p>
+
+<div class="crumbs"><a href="?{{ keep }}">Все учреждения</a>{% for c in crumbs %}<span class="sep">›</span><a href="?parent={{ c.pk }}&{{ keep }}">{{ c.label }}</a>{% endfor %}</div>
+
+<div class="card">
+  {% if table or own %}
+  <div class="tbl-wrap"><table class="data pin1">
+    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th><th class="n">Узлов с описями</th><th class="n">Описей</th><th class="n">Позиций</th>{% if not sel %}<th class="n">Из них мер</th><th class="n" title="Подозрительная стоимость — не в своде, пока не нажато «Верно» на вкладке «Подозрительные»">Подозрит.</th>{% endif %}<th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th class="n">Накоп. износ, сом</th><th class="n">Балансовая стоимость, сом</th><th>Последняя версия</th></tr></thead>
+    <tbody>
+    {% if own %}<tr><td><b>{{ parent.label }}</b> <span class="muted">— свои описи (ниже)</span></td><td class="n">1</td><td class="n">{{ own.invs|num }}</td><td class="n">{{ own.rows|num }}</td>{% if not sel %}<td class="n {% if not own.excl %}muted{% endif %}">{{ own.excl|num }}</td><td class="n {% if not own.held %}muted{% endif %}">{{ own.held|num }}</td>{% endif %}<td class="n">{{ own.qty|num }}</td><td class="n">{{ own.ci|num:2 }}</td><td class="n">{{ own.dep|num:2 }}</td><td class="n">{{ own.cb|num:2 }}</td><td class="nw muted">{{ own.last|date:"d.m.Y H:i" }}</td></tr>{% endif %}
+    {% for t in table %}<tr>
+      <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&{{ keep }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
+      <td class="n {% if not t.nodes %}muted{% endif %}">{{ t.nodes|num }}</td><td class="n {% if not t.invs %}muted{% endif %}">{{ t.invs|num }}</td>
+      <td class="n">{{ t.rows|num }}</td>{% if not sel %}<td class="n {% if not t.excl %}muted{% endif %}">{{ t.excl|num }}</td><td class="n {% if not t.held %}muted{% endif %}">{{ t.held|num }}</td>{% endif %}<td class="n">{{ t.qty|num }}</td><td class="n">{{ t.ci|num:2 }}</td><td class="n">{{ t.dep|num:2 }}</td><td class="n">{{ t.cb|num:2 }}</td>
+      <td class="nw muted">{{ t.last|date:"d.m.Y H:i"|default:"—" }}</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td>Итого</td><td class="n">{{ totals.nodes|num }}</td><td class="n">{{ totals.invs|num }}</td><td class="n">{{ totals.rows|num }}</td>{% if not sel %}<td class="n">{{ totals.excl|num }}</td><td class="n">{{ totals.held|num }}</td>{% endif %}<td class="n">{{ totals.qty|num }}</td><td class="n">{{ totals.ci|num:2 }}</td><td class="n">{{ totals.dep|num:2 }}</td><td class="n">{{ totals.cb|num:2 }}</td><td></td></tr></tfoot>
+  </table></div>
+  {% else %}
+  <div class="empty"><b>На эту дату данных нет</b>Здесь появятся {% if parent %}подведы{% else %}учреждения{% endif %} с принятыми описями.</div>
+  {% endif %}
+</div>
+
+{% if by_status %}
+<div class="card"><h2>По статусам — {% if parent %}{{ parent.label }} со всеми подведами{% else %}все учреждения{% endif %}</h2>
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Статус</th><th class="n">Описей</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n">Доля, %</th><th class="n">Первонач. стоимость, сом</th><th class="n">Накоп. износ, сом</th><th class="n">Балансовая стоимость, сом</th></tr></thead>
+    <tbody>{% for r in by_status %}<tr>
+      <td>{% if r.status_id %}<a href="{% url 'items_search' %}?status={{ r.status_id }}{% if parent %}&node={{ parent.pk }}{% endif %}{% if date %}&date={{ date }}{% endif %}" title="Позиции с этим статусом">{{ r.status__name }}</a>{% else %}без статуса{% endif %}</td>
+      <td class="n">{{ r.invs|num }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n muted">{{ r.share|num:1 }}</td>
+      <td class="n">{{ r.ci|num:2 }}</td><td class="n">{{ r.dep|num:2 }}</td><td class="n">{{ r.cb|num:2 }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if own_invs %}
+<div class="card"><h2>Описи узла «{{ parent.label }}» <span class="muted">{{ own_invs|length }}</span></h2>
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Файл</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th>Загружена</th><th>Откуда</th></tr></thead>
+    <tbody>{% for inv in own_invs %}<tr>
+      <td class="wrap"><a href="{% url 'inventory_detail' inv.pk %}">{{ inv.source_file.name }}</a>{% if inv.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
+      <td class="n">{{ inv.rows|num }}</td><td class="n">{{ inv.qty|num }}</td><td class="n">{{ inv.cost_initial|num:2 }}</td>
+      <td class="nw muted">{{ inv.parsed_at|date:"d.m.Y H:i" }}{% if inv.loaded_by %} · {{ inv.loaded_by.get_username }}{% endif %}</td>
+      <td class="wrap muted">{{ inv.loaded_where }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

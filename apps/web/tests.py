@@ -6,6 +6,7 @@ import io
 import os
 import shutil
 import tempfile
+import time
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -16,6 +17,7 @@ from apps.imports import services
 from apps.imports.tests import BASE, make_book, row
 from apps.inventories.models import Inventory
 from apps.imports.models import ScanRun
+from apps.orgs.models import Node
 
 
 @override_settings(AUTO_ACCEPT=False)
@@ -276,6 +278,13 @@ class UploadTests(TransactionTestCase):
         self.assertEqual(paths, ["126/8", "127"])
         self.assertEqual([f for _, _, fs in os.walk(self.up) for f in fs], [], "загруженное стёрто")
         self.assertEqual(run.roots_label, "загрузка с компьютера")
+        # Откуда: путь внутри перетащенного (файлы стёрты), кто загрузил, каким обходом.
+        invs = {i.loaded_from: i for i in Inventory.objects.select_related("loaded_by")}
+        self.assertEqual(sorted(invs), sorted([os.path.join("126", "8. Тест", "опись.xlsx"),
+                                               os.path.join("127", "опись.xlsx")]))
+        i = invs[os.path.join("127", "опись.xlsx")]
+        self.assertEqual((i.loaded_via, i.loaded_by.username, i.scan_run_id), ("upload", "t", run.pk))
+        self.assertEqual(i.loaded_where, "с компьютера: " + os.path.join("127", "опись.xlsx"))
         self.assertNotIn(self.up, self.client.get(reverse("import_page")).context["recent"])
 
     def test_foreign_paths_and_non_books_are_refused(self):
@@ -469,3 +478,208 @@ class InventoryFiltersTests(TransactionTestCase):
         self.assertEqual([(x[0], x[1], x[2], x[8]) for x in rows], [("127", "!опись.xlsx", 1, "да")])
         params = dict(wb["Параметры"].iter_rows(min_row=2, values_only=True))
         self.assertEqual((params["Пометка «ПРОВЕРИТЬ»"], params["Описей"]), ("есть", 1))
+
+
+@override_settings(AUTO_ACCEPT=True)
+class StatsNodesTests(TransactionTestCase):
+    """Свод по подведам и статистика описи (пользователь 27.10.2026: «Добавить
+    статистику по каждому подведу, по каждой описи. Каждая опись должна знать,
+    откуда была загружена и когда»)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "8. А", "опись.xlsx"), BASE)
+        make_book(os.path.join(self.root, "126", "9. Б", "опись.xlsx"), BASE[:1])
+        make_book(os.path.join(self.root, "126", "9. Б", "10. В", "опись.xlsx"), BASE[:2])
+        make_book(os.path.join(self.root, "126", "опись.xlsx"), BASE[2:])
+        services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_top_level_sums_subtree(self):
+        r = self.client.get(reverse("stats_nodes"))
+        (t,) = r.context["table"]
+        self.assertEqual((t["node"].code, t["nodes"], t["invs"], t["rows"], t["qty"]), ("126", 4, 4, 7, 11))
+        self.assertTrue(t["drill"])
+
+    def test_children_and_own_inventories(self):
+        from apps.orgs.models import Node
+        n126 = Node.objects.get(path="/126/")
+        r = self.client.get(reverse("stats_nodes"), {"parent": n126.pk})
+        rows = {t["node"].code: (t["nodes"], t["invs"], t["rows"], t["qty"]) for t in r.context["table"]}
+        self.assertEqual(rows, {"8": (1, 1, 3, 5), "9": (2, 2, 3, 3)})
+        self.assertEqual((r.context["own"]["invs"], r.context["own"]["qty"]), (1, 3))
+        self.assertEqual(r.context["totals"]["invs"], 4)
+        self.assertEqual([i.source_file.name for i in r.context["own_invs"]], ["опись.xlsx"])
+        self.assertContains(r, os.path.join(self.root, "126", "опись.xlsx"))
+        x = self.client.get(reverse("stats_nodes"), {"parent": n126.pk, "export": "xlsx"})
+        ws = openpyxl.load_workbook(io.BytesIO(x.content)).active
+        self.assertEqual([c.value for c in ws[2]][:3], ["126 — свои описи", 1, 1])
+        self.assertEqual(ws.cell(ws.max_row, 3).value, 4)
+
+    def test_inventory_of_measures_only_is_counted(self):
+        """Опись из одних мер в своде версий не видна — в своде по подведам считается."""
+        make_book(os.path.join(self.root, "126", "8. А", "меры.xlsx"),
+                  [row("т", "31123130", "Основной список", qty=2.5, inv="20", cost=500)])
+        services.scan([self.root], workers=1)
+        r = self.client.get(reverse("stats_nodes"))
+        (t,) = r.context["table"]
+        self.assertEqual((t["nodes"], t["invs"], t["rows"], t["excl"], t["qty"]), (4, 5, 8, 1, 11))
+
+    def test_status_statistics_and_filter(self):
+        """Статистика по статусам и отбор по ним (пользователь 27.10.2026: «фильтровать
+        по статусам и видеть их статистику — количество по статусу, цена по статусу»)."""
+        from apps.inventories.models import Status
+        from apps.orgs.models import Node
+        r = self.client.get(reverse("stats_nodes"))
+        st = {x["status__name"]: (x["invs"], x["rows"], x["qty"], x["ci"]) for x in r.context["by_status"]}
+        self.assertEqual(st, {"Основной список": (3, 3, 3, 30000), "Резерв": (2, 2, 2, 20000),
+                              "Не требует оценки": (2, 2, 6, 20000)})
+        self.assertEqual(round(sum(x["share"] for x in r.context["by_status"])), 100)
+        reserve = Status.objects.get(name="Резерв")
+        n126 = Node.objects.get(path="/126/")
+        r = self.client.get(reverse("stats_nodes"), {"parent": n126.pk, "status": reserve.pk})
+        rows = {t["node"].code: (t["nodes"], t["invs"], t["rows"], t["qty"], t["ci"]) for t in r.context["table"]}
+        self.assertEqual(rows, {"8": (1, 1, 1, 1, 10000), "9": (1, 1, 1, 1, 10000)})
+        self.assertIsNone(r.context["own"])
+        self.assertEqual(r.context["own_invs"], [])
+        self.assertEqual([x["status__name"] for x in r.context["by_status"]], ["Резерв"])
+        self.assertContains(r, f"status={reserve.pk}")  # отбор сохраняется в ссылках вглубь
+        x = self.client.get(reverse("stats_nodes"), {"status": reserve.pk, "export": "xlsx"})
+        wb = openpyxl.load_workbook(io.BytesIO(x.content))
+        self.assertEqual(wb.sheetnames, ["Подведы", "По статусам", "Параметры"])
+        self.assertEqual(dict(wb["Параметры"].iter_rows(min_row=2, values_only=True))["Статусы"], "Резерв")
+        r = self.client.get(reverse("stats_orgs"), {"status": reserve.pk})
+        self.assertEqual(r.context["grand"], 2)
+        r = self.client.get(reverse("home"))  # и на «Обзоре»
+        self.assertEqual({x["status__name"]: x["qty"] for x in r.context["by_status"]},
+                         {"Основной список": 3, "Резерв": 2, "Не требует оценки": 6})
+        self.assertContains(r, f"?status={reserve.pk}")
+
+    def test_before_first_load_is_empty(self):
+        r = self.client.get(reverse("stats_nodes"), {"date": "2000-01-01"})
+        self.assertEqual(r.context["table"], [])
+        self.assertContains(r, "На эту дату данных нет")
+
+    def test_inventory_page_shows_source_and_breakdown(self):
+        inv = Inventory.objects.get(source_file__rel_folder=os.path.join("126", "8. А"))
+        r = self.client.get(reverse("inventory_detail", args=[inv.pk]))
+        self.assertContains(r, "Откуда и когда загружена")
+        self.assertContains(r, inv.loaded_from)
+        self.assertContains(r, reverse("scan_detail", args=[inv.scan_run_id]))
+        parts = {title: rows for title, _, rows in r.context["breakdown"]}
+        by_code = {x["k"]: x["rows"] for x in parts["По коду учёта"]}
+        self.assertEqual(by_code, {"31123110": 1, "31123120": 1, "31123130": 1})
+
+
+@override_settings(AUTO_ACCEPT=True)
+class SuspectsTests(TransactionTestCase):
+    """«Подозрительные» (пользователь 28.10.2026: «описи с подозрительно низким или
+    высоким первоначальной стоимостью, или где в первоначальной стоимости будут буквы»;
+    «чтобы они не учитывались в основной статистике пока на вкладке подозрительные я не
+    нажму кнопку верно»)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        books = {"1. Дорогая": [row("Холодильник", "31123190", "Резерв", inv="", cost=311231900008),
+                                row("Шкаф", "31123110", "Резерв", inv="11", cost=5000)],
+                 "2. Дешёвая": [row("Стул", "31123110", "Резерв", inv="2", cost=0.5)],
+                 "3. Буквы": [row("Шкаф", "31123110", "Резерв", inv="3", cost="сто сом")],
+                 "4. Ноль": [row("Стол", "31123110", "Резерв", inv="4", cost=0)],
+                 "5. Обычная": BASE}
+        for folder, rows in books.items():
+            make_book(os.path.join(self.root, "126", folder, "опись.xlsx"), rows)
+        self.run_ = services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def names(self, r):
+        return [x["inv"].node.name for x in r.context["page"]]
+
+    def inv(self, name):
+        return Inventory.objects.get(node__name=name, is_current=True)
+
+    def test_letters_in_cost_are_kept_and_logged(self):
+        from apps.inventories.models import Item
+        it = Item.objects.get(name="Шкаф", inv_no="3")
+        self.assertEqual((it.cost_initial, it.cost_initial_raw, it.suspect, it.held), (None, "сто сом", "text", True))
+        self.assertIn("в первонач. стоимости не число — 1 стр.", self.run_.log)
+        self.assertIn("подозрительная первонач. стоимость (не в своде до «Верно») — 1 стр.", self.run_.log)
+        r = self.client.get(reverse("inventory_detail", args=[it.inventory_id]), {"suspect": "text"})
+        self.assertContains(r, "«сто сом»")
+        self.assertContains(r, "не в своде")
+        self.assertEqual(r.context["tot"]["rows"], 1)
+
+    def test_tab_lists_held_not_zero(self):
+        r = self.client.get(reverse("suspects"))
+        self.assertEqual(self.names(r), ["Дорогая", "Дешёвая", "Буквы"])
+        tiles = {t["key"]: (t["rows"], t["invs"]) for t in r.context["tiles"]}
+        self.assertEqual(tiles, {"high": (1, 1), "low": (1, 1), "neg": (0, 0), "text": (1, 1)})
+        self.assertTrue(r.context["page"][0]["code_like"])
+        self.assertContains(r, "похоже на инв. номер")
+        self.assertContains(r, reverse("suspect_confirm", args=[self.inv("Дорогая").pk]))
+        r = self.client.get(reverse("suspects"), {"f": "1", "cat": "low"})
+        self.assertEqual(self.names(r), ["Дешёвая"])
+
+    def test_held_not_in_stats_until_confirmed(self):
+        from apps.stats.models import VersionStat
+        inv = self.inv("Дорогая")
+        self.assertEqual((inv.rows, inv.rows_held, inv.qty, inv.cost_initial), (2, 1, 1, 5000))
+        self.assertEqual(sum(v.rows for v in VersionStat.objects.filter(inventory=inv)), 1)
+        home = self.client.get(reverse("home"))
+        self.assertEqual(home.context["held"], {"n": 3, "rows": 3})
+        n126 = Node.objects.get(path="/126/")
+        nodes = self.client.get(reverse("stats_nodes"), {"parent": n126.pk}).context["table"]
+        self.assertEqual({t["node"].name: t["held"] for t in nodes}["Дорогая"], 1)
+        # «Верно» — в свод, в т. ч. «на прошлые даты»; в списке подтверждённых; отмена — обратно.
+        r = self.client.post(reverse("suspect_confirm", args=[inv.pk]), {"next": reverse("suspects")})
+        self.assertRedirects(r, reverse("suspects"), fetch_redirect_response=False)
+        inv.refresh_from_db()
+        self.assertEqual((inv.rows_held, inv.qty, inv.cost_initial), (0, 2, 311231905008))
+        self.assertEqual(sum(v.rows for v in VersionStat.objects.filter(inventory=inv, valid_to__isnull=True)), 2)
+        self.assertEqual(VersionStat.objects.filter(inventory=inv).values("valid_from").distinct().count(), 1)
+        self.assertEqual(self.names(self.client.get(reverse("suspects"))), ["Дешёвая", "Буквы"])
+        self.assertEqual(self.names(self.client.get(reverse("suspects"), {"show": "ok"})), ["Дорогая"])
+        self.client.post(reverse("suspect_undo", args=[inv.pk]))
+        inv.refresh_from_db()
+        self.assertEqual((inv.rows_held, inv.qty), (1, 1))
+
+    def test_confirmation_carries_to_new_version(self):
+        from apps.inventories.models import Item
+        self.client.post(reverse("suspect_confirm", args=[self.inv("Дорогая").pk]))
+        time.sleep(1.1)
+        make_book(os.path.join(self.root, "126", "1. Дорогая", "опись.xlsx"),
+                  [row("Холодильник", "31123190", "Резерв", inv="", cost=311231900008),
+                   row("Плита", "31123190", "Резерв", inv="12", cost=411231900001)])
+        services.scan([self.root], workers=1)
+        new = self.inv("Дорогая")
+        held = dict(Item.objects.filter(inventory=new).values_list("name", "held"))
+        self.assertEqual(held, {"Холодильник": False, "Плита": True})
+
+    def test_viewer_cannot_confirm(self):
+        viewer = User.objects.create_user("v", "", "pw-12345678")
+        self.client.force_login(viewer)
+        self.assertEqual(self.client.post(reverse("suspect_confirm", args=[self.inv("Дорогая").pk])).status_code, 403)
+        self.assertNotContains(self.client.get(reverse("suspects")), "Верно</button>")
+
+    def test_recheck_after_threshold_change(self):
+        from apps.imports import suspects
+        self.client.post(reverse("suspect_confirm", args=[self.inv("Дешёвая").pk]))
+        with self.settings(SUSPECT_HIGH="5000"):
+            held, _ = suspects.recheck()
+        # «Шкаф» за 5000 и BASE по 10 000 стали дороже порога; подтверждённый «Стул» — не отложен.
+        self.assertEqual(held, 1 + 1 + 1 + 3)
+        self.assertEqual(self.inv("Дешёвая").rows_held, 0)
+        self.assertEqual(self.inv("Обычная").rows_held, 3)
+
+    def test_export_positions_with_reasons(self):
+        x = self.client.get(reverse("suspects"), {"export": "xlsx"})
+        wb = openpyxl.load_workbook(io.BytesIO(x.content))
+        why = {(r[4], r[5]): r[10] for r in wb["Позиции"].iter_rows(min_row=2, values_only=True)}
+        self.assertEqual(why, {("Холодильник", None): "дороже порога — похоже на код счёта с номером",
+                               ("Стул", "2"): "дешевле порога, но больше 0",
+                               ("Шкаф", "3"): "не число: «сто сом»"})
