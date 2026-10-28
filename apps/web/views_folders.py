@@ -30,7 +30,7 @@ EXTS = tuple(settings.INVENTORY_EXTENSIONS)
 def _start_scan(request, root, upload=False):
     """Обход в фоне: на сервере — обработчик очереди, в разработке — поток.
     upload — книги, перетащенные с компьютера: после разбора стираются."""
-    run = ScanRun.objects.create(roots=[root], stage="в очереди")
+    run = ScanRun.objects.create(roots=[root], stage="в очереди", by=request.user)
     work_now = (lambda: imports.scan_upload(run=run)) if upload else (lambda: imports.scan([root], run=run))
     if getattr(settings, "SCAN_SYNC", False):  # тесты
         work_now()

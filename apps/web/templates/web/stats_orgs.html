@@ -8,19 +8,20 @@
 <form class="filters" method="get">
   {% if parent %}<input type="hidden" name="parent" value="{{ parent.pk }}">{% endif %}
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
+  {% include "web/_status_filter.html" %}
   <button class="btn" type="submit">Показать</button>
   <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
 </form>
-<p class="asof">Показано на {{ asof|date:"d.m.Y H:i" }}{% if not date %} — сейчас{% endif %}</p>
+<p class="asof">Показано на {{ asof|date:"d.m.Y H:i" }}{% if not date %} — сейчас{% endif %}{% if sel %} · статусы: {% for s in sel %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</p>
 
-<div class="crumbs"><a href="?date={{ date }}">Все учреждения</a>{% for c in crumbs %}<span class="sep">›</span><a href="?parent={{ c.pk }}&date={{ date }}">{{ c.label }}</a>{% endfor %}</div>
+<div class="crumbs"><a href="?{{ keep }}">Все учреждения</a>{% for c in crumbs %}<span class="sep">›</span><a href="?parent={{ c.pk }}&{{ keep }}">{{ c.label }}</a>{% endfor %}</div>
 
 <div class="card">
   {% if table %}
   <div class="tbl-wrap"><table class="data pin1">
     <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}, шт.</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}, шт.</th>{% endfor %}<th class="n">Итого, шт.</th></tr></thead>
     <tbody>{% for t in table %}<tr>
-      <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&date={{ date }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
+      <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&{{ keep }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
       {% for v in t.gvals %}<td class="n grp {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
     <tfoot><tr><td>Итого</td>{% for v in gtotals %}<td class="n grp">{{ v|num }}</td>{% endfor %}{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
   </table></div>

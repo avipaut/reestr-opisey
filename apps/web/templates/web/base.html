@@ -19,7 +19,9 @@
     <a href="{% url 'inventories' %}" class="{% if nav == 'inventories' %}on{% endif %}">Описи</a>
     <a href="{% url 'items_search' %}" class="{% if nav == 'items' %}on{% endif %}">Поиск позиций</a>
     <a href="{% url 'stats_codes' %}" class="{% if nav == 'codes' %}on{% endif %}">Свод по кодам</a>
+    <a href="{% url 'stats_nodes' %}" class="{% if nav == 'subs' %}on{% endif %}">Свод по подведам</a>
     <a href="{% url 'stats_orgs' %}" class="{% if nav == 'orgs' %}on{% endif %}">Код × учреждение</a>
+    <a href="{% url 'suspects' %}" class="{% if nav == 'suspects' %}on{% endif %}">Подозрительные</a>
     <a href="{% url 'scans' %}" class="{% if nav == 'scans' %}on{% endif %}">Журнал обходов</a>
     {% if user.is_staff %}<a href="{% url 'admin:index' %}">Справочники</a>{% endif %}
     <div class="grow"></div>

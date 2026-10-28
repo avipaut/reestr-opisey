@@ -19,6 +19,8 @@ class ScanRun(models.Model):
 
     state = models.CharField("состояние", max_length=16, choices=State.choices, default=State.RUNNING)
     roots = models.JSONField("папки", default=list)
+    by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                           related_name="+", verbose_name="кто запустил")  # пусто — по расписанию, командой
     started_at = models.DateTimeField("начало", auto_now_add=True)
     finished_at = models.DateTimeField("конец", null=True, blank=True)
     found = models.IntegerField("файлов найдено", default=0)

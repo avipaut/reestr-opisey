@@ -18,7 +18,6 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 from django.conf import settings
 from django.db import connection, reset_queries, transaction
-from django.db.models import Sum
 from django.utils import timezone
 
 from apps.inventories.models import Inventory, Item, ObjectType, Reconciliation, Rule, SourceFile, Status
@@ -28,6 +27,7 @@ from apps.orgs.services import ensure_path
 from apps.stats import services as stats
 from apps.stats.models import VersionStat
 
+from . import suspects
 from .models import ScanFile, ScanRun
 from .reader import parse_book
 
@@ -228,7 +228,7 @@ def scan(roots=None, workers=None, run=None, processed_only=True, mark_missing=T
                 run.warnings += 1
                 notes.append(f"{path}: {issues}")
             try:
-                inv = _stage(sf, parsed)
+                inv = _stage(sf, parsed, run)
             except Exception as e:  # одна книга не валит обход, но и не теряется
                 log.exception("опись не записана: %s", sf.path)
                 notes.append(f"не записана: {sf.path}: {type(e).__name__}: {e}")
@@ -384,7 +384,13 @@ def data_issues(parsed):
     unit = [i for i in items if UNIT_NAME.match(i.get("name") or "")]
     neg = [i for i in items if (i.get("qty") or "").startswith("-")]
     measures = [i for i in items if i.get("excluded")]
+    letters = [i for i in items if i.get("cost_initial_raw")]
+    odd = [i for i in items if suspects.reason(i.get("cost_initial"), i.get("cost_initial_raw")) in ("high", "low", "neg")]
     out = []
+    if letters:
+        out.append(f"в первонач. стоимости не число — {len(letters)} стр.: {_rows(letters)}")
+    if odd:
+        out.append(f"подозрительная первонач. стоимость (не в своде до «Верно») — {len(odd)} стр.: {_rows(odd)}")
     if money:
         out.append(f"сумма в «Количестве» — {len(money)} стр. (из них переставлены количество и стоимость — "
                    f"{len(swapped)}), посчитаны за 1 шт.; строки: {_rows(money)}")
@@ -472,11 +478,20 @@ def _resolve_node(rel_folder):
     return ensure_path(proposed), proposed, True
 
 
-def _stage(sf, p) -> Inventory:
+def _provenance(sf, run=None):
+    """Откуда, кем и каким обходом загружена книга — снимок на момент загрузки."""
+    upload = ScanRun.root_label(sf.root) != sf.root
+    return dict(scan_run=run, loaded_by_id=run.by_id if run else None,
+                loaded_via=Inventory.Via.UPLOAD if upload else Inventory.Via.FOLDER,
+                loaded_from=os.path.relpath(sf.path, sf.root) if upload else sf.path,
+                file_size=sf.size, file_mtime=sf.mtime)
+
+
+def _stage(sf, p, run=None) -> Inventory:
     """Записать разобранную книгу описью «ждёт просмотра» (одна транзакция)."""
     node, proposed, resolved = _resolve_node(sf.rel_folder)
     base = dict(source_file=sf, sha256=p.get("sha256") or sf.sha256, node=node,
-                proposed_path=proposed, node_resolved=resolved)
+                proposed_path=proposed, node_resolved=resolved, **_provenance(sf, run))
     if p.get("error"):
         return Inventory.objects.create(state=Inventory.State.ERROR, error=p["error"], **base)
     # Версии — по файлу: у узла бывает несколько описей сразу (бюджет, спецсчёт).
@@ -484,6 +499,9 @@ def _stage(sf, p) -> Inventory:
     if current and current.content_hash == p["content_hash"]:
         return Inventory.objects.create(state=Inventory.State.UNCHANGED, content_hash=p["content_hash"],
                                         rows=len(p["items"]), **base)
+    # «Верно» по подозрительной стоимости прежней версии книги — на те же строки новой.
+    confirmed = ({h: (at, by) for h, at, by in Item.objects.filter(inventory=current, suspect_ok_at__isnull=False)
+                  .values_list("row_hash", "suspect_ok_at", "suspect_ok_by_id")} if current else {})
     statuses = {s.name.lower(): s for s in Status.objects.all()}
     types = {t.name: t for t in ObjectType.objects.all()}
     with transaction.atomic():
@@ -507,16 +525,15 @@ def _stage(sf, p) -> Inventory:
                 ot = types.get(it["object_type"])
                 if ot is None:
                     ot = types[it["object_type"]] = ObjectType.objects.create(name=it["object_type"][:300])
-            items.append(Item(inventory=inv, status=status, object_type=ot,
+            why = suspects.reason(it.get("cost_initial"), it.get("cost_initial_raw"))
+            ok_at, ok_by = confirmed.get(it["row_hash"], (None, None)) if why else (None, None)
+            items.append(Item(inventory=inv, status=status, object_type=ot, suspect=why, held=bool(why) and not ok_at,
+                              suspect_ok_at=ok_at, suspect_ok_by_id=ok_by,
                               **{f: it.get(f) for f in ITEM_FIELDS if f in it}))
         Item.objects.bulk_create(items, batch_size=2000)
         Reconciliation.objects.bulk_create([Reconciliation(inventory=inv, **r) for r in p["reconciliations"]])
         Rule.objects.bulk_create([Rule(inventory=inv, **r) for r in p["rules"]])
-        agg = Item.objects.filter(inventory=inv, excluded=False).aggregate(
-            q=Sum("qty"), ci=Sum("cost_initial"), cb=Sum("cost_balance"))
-        inv.rows, inv.qty = len(items), agg["q"] or 0
-        inv.cost_initial, inv.cost_balance = agg["ci"] or 0, agg["cb"] or 0
-        inv.save(update_fields=["rows", "qty", "cost_initial", "cost_balance"])
+        stats.fill_totals(inv)
     return inv
 
 

@@ -67,6 +67,10 @@ class SourceFile(models.Model):
 
 
 class Inventory(models.Model):
+    class Via(models.TextChoices):
+        FOLDER = "folder", "обход папки"
+        UPLOAD = "upload", "загрузка с компьютера"
+
     class State(models.TextChoices):
         PENDING = "pending", "ждёт просмотра"
         ACCEPTED = "accepted", "принята"
@@ -86,7 +90,18 @@ class Inventory(models.Model):
     content_hash = models.CharField("хеш содержимого", max_length=64, db_index=True, blank=True)
     error = models.TextField("ошибка", blank=True)
 
-    parsed_at = models.DateTimeField("разобрана", auto_now_add=True)
+    parsed_at = models.DateTimeField("загружена", auto_now_add=True)
+    # Откуда загружена — снимок на момент загрузки: файл потом меняется и переименовывается
+    # (модуль нормализации пересобирает описи), загруженное с компьютера стирается.
+    loaded_via = models.CharField("как загружена", max_length=8, choices=Via.choices, blank=True)
+    loaded_from = models.CharField("откуда загружена", max_length=2000, blank=True,
+                                   help_text="путь файла; для загрузки с компьютера — путь внутри перетащенного")
+    loaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                  related_name="+", verbose_name="кто загрузил")
+    scan_run = models.ForeignKey("imports.ScanRun", null=True, blank=True, on_delete=models.SET_NULL,
+                                 related_name="inventories", verbose_name="обход")
+    file_size = models.BigIntegerField("размер файла", null=True, blank=True)
+    file_mtime = models.DateTimeField("файл изменён", null=True, blank=True)
     decided_at = models.DateTimeField("решение", null=True, blank=True)
     decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
                                    related_name="+", verbose_name="кто решил")
@@ -112,6 +127,12 @@ class Inventory(models.Model):
     qty = models.DecimalField("количество", max_digits=18, decimal_places=3, default=0)
     cost_initial = models.DecimalField("первонач. стоимость", max_digits=20, decimal_places=2, default=0)
     cost_balance = models.DecimalField("балансовая стоимость", max_digits=20, decimal_places=2, default=0)
+    # Итоги описи (stats.services.fill_totals): количество и деньги — без мер, как в своде.
+    depreciation = models.DecimalField("накоп. износ", max_digits=20, decimal_places=2, default=0)
+    rows_excluded = models.IntegerField("исключено из свода (меры)", default=0)
+    rows_held = models.IntegerField("отложено до проверки (подозрительные)", default=0)
+    rows_no_code = models.IntegerField("без рекомендуемого кода", default=0)
+    codes = models.IntegerField("разных кодов учёта", default=0)
 
     class Meta:
         verbose_name = "опись"
@@ -124,6 +145,13 @@ class Inventory(models.Model):
 
     def __str__(self):
         return f"{self.source_file.name} ({self.get_state_display()})"
+
+    @property
+    def loaded_where(self):
+        """Откуда загружена — для экрана."""
+        if self.loaded_via == self.Via.UPLOAD:
+            return f"с компьютера: {self.loaded_from}"
+        return self.loaded_from or self.source_file.path
 
 
 class Item(models.Model):
@@ -140,9 +168,18 @@ class Item(models.Model):
     # пользователя 16.10.2026 «Исключаем». Позиция хранится и видна в поиске.
     excluded = models.BooleanField("исключено из свода", default=False)
     exclude_reason = models.TextField("почему исключено", blank=True)
+    # Подозрительная первонач. стоимость (apps.imports.suspects): причина; пока не подтверждена
+    # на вкладке «Подозрительные» («Верно») — held: в своды, итоги и количество не входит.
+    suspect = models.CharField("подозрительная стоимость", max_length=8, blank=True, db_index=True)
+    held = models.BooleanField("отложена до проверки", default=False)
+    suspect_ok_at = models.DateTimeField("стоимость подтверждена", null=True, blank=True)
+    suspect_ok_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                      related_name="+", verbose_name="кто подтвердил")
     inv_no = models.TextField("инв. номер", blank=True)
     inv_key = models.TextField("ключ позиции", blank=True, db_index=True)
     cost_initial = models.DecimalField("первонач. стоимость", **MONEY)
+    # В ячейке не число (буквы) — стоимость пуста, текст ячейки — здесь (вкладка «Подозрительные»).
+    cost_initial_raw = models.TextField("первонач. стоимость — текст из описи", blank=True)
     depreciation = models.DecimalField("накоп. износ", **MONEY)
     cost_balance = models.DecimalField("балансовая стоимость", **MONEY)
     priority = models.SmallIntegerField("приоритет", null=True, blank=True)

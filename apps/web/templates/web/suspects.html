@@ -1,0 +1,49 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}Подозрительные — Реестр описей{% endblock %}
+{% block content %}
+<h1>Подозрительные</h1>
+<p class="sub">Актуальные описи, где первоначальная стоимость позиций дороже {{ high|num }} сом, дешевле {{ low|num }} сом (но больше 0), отрицательная или с буквами вместо числа.</p>
+<p class="measure"><b>Пока не нажато «Верно», такие позиции не входят в своды, итоги, количество и стоимости</b> — ни сейчас, ни «на дату». «Верно» подтверждает все подозрительные позиции описи; если книга придёт новой версией, подтверждение перейдёт на те же строки. Ошибочную стоимость исправляют в модуле нормализации — исправленная книга придёт новой версией при обходе.</p>
+
+<div class="tabs">
+  <a href="?{% for c in s.cats %}cat={{ c }}&{% endfor %}f=1" class="{% if not s.ok %}on{% endif %}">Ждут «Верно»{% if not s.ok %} <span class="muted">{{ total|num }} оп.</span>{% else %} <span class="muted">{{ other.rows|num }} поз. в {{ other.invs|num }} оп.</span>{% endif %}</a>
+  <a href="?{% for c in s.cats %}cat={{ c }}&{% endfor %}f=1&show=ok" class="{% if s.ok %}on{% endif %}">Подтверждённые{% if s.ok %} <span class="muted">{{ total|num }} оп.</span>{% else %} <span class="muted">{{ other.rows|num }} поз. в {{ other.invs|num }} оп.</span>{% endif %}</a>
+</div>
+
+<form class="filters" method="get">
+  <input type="hidden" name="f" value="1">{% if s.ok %}<input type="hidden" name="show" value="ok">{% endif %}
+  <fieldset class="statuses"><legend>Причины</legend>{% for c, label in reasons %}<label class="check"><input type="checkbox" name="cat" value="{{ c }}" {% if c in s.cats %}checked{% endif %}> {{ label }}</label>{% endfor %}</fieldset>
+  <button class="btn" type="submit">Показать</button>
+  <button class="btn" type="submit" name="export" value="xlsx" title="Подозрительные позиции — по строке, с причиной">Выгрузить позиции в Excel</button>
+</form>
+
+<div class="tiles">{% for t in tiles %}
+  <div class="tile{% if not t.on %} off{% endif %}"><div class="k">{{ t.label|capfirst }}</div><div class="v">{{ t.rows|num }} <span class="muted d">поз.</span></div><div class="d muted">в описях: {{ t.invs|num }}{% if not t.on %} · не показаны{% endif %}</div></div>{% endfor %}
+</div>
+
+<div class="card">
+  {% if page.object_list %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th></th><th>Учреждение</th><th>Файл</th>
+      {% for short, label in shown %}<th class="n" title="{{ label|capfirst }}">{{ short }}</th>{% endfor %}
+      <th class="n">Макс. стоимость, сом</th><th class="n">Мин. стоимость, сом</th><th class="n" title="Сумма позиций дороже порога, кроме мер">Дорогие, сом</th><th></th></tr></thead>
+    <tbody>{% for r in page %}<tr>
+      <td class="nw">{% if perms.inventories.change_item %}
+        {% if s.ok %}<form method="post" action="{% url 'suspect_undo' r.inventory_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn" type="submit" title="Снова не учитывать эти позиции в сводах">Отменить</button></form>
+        <div class="d muted">{{ r.ok_at|date:"d.m.Y H:i" }}</div>
+        {% else %}<form method="post" action="{% url 'suspect_confirm' r.inventory_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn primary" type="submit" title="Стоимости верны — учитывать все подозрительные позиции описи в сводах">Верно</button></form>{% endif %}
+      {% endif %}</td>
+      <td class="node"><a href="{{ r.all_url }}" title="Подозрительные позиции этой описи">{{ r.inv.node.trail|default:"узел не указан" }}</a></td>
+      <td class="wrap muted">{{ r.inv.source_file.name }}{% if r.inv.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}{% if r.measures %}<div class="d">из них мер (в свод не входят и так): {{ r.measures|num }}</div>{% endif %}</td>
+      {% for n, url in r.cells %}<td class="n">{% if n %}<a href="{{ url }}" title="Эти позиции в описи">{{ n|num }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+      <td class="n">{{ r.mx|num:2 }}{% if r.code_like %}<div class="minus d" title="Целое число из 11+ цифр, начинается с «31» — похоже на код счёта и порядковый номер">похоже на инв. номер</div>{% endif %}</td>
+      <td class="n">{{ r.mn|num:2 }}</td>
+      <td class="n">{% if r.big %}<b>{{ r.big|num:0 }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
+</tr>{% endfor %}</tbody>
+  </table></div>
+  {% with qs=pager_qs %}{% include "web/_pager.html" %}{% endwith %}
+  {% else %}
+  <div class="empty"><b>{% if s.ok %}Подтверждённых нет{% else %}Подозрительных описей нет{% endif %}</b>По выбранным причинам ничего не нашлось.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -10,10 +10,9 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
-from django.db.models import Sum
 
 from apps.inventories.models import Inventory, Item
-from apps.stats.services import rebuild_stats
+from apps.stats.services import fill_totals, rebuild_stats
 
 NUM = re.compile(r"в количестве (?:цена \()?(-?[\d.]+)")
 
@@ -42,7 +41,6 @@ class Command(BaseCommand):
                 inv_ids.add(it.inventory_id)
                 n += 1
             for inv in Inventory.objects.filter(pk__in=inv_ids):
-                agg = inv.items.aggregate(ci=Sum("cost_initial"), cb=Sum("cost_balance"))
-                Inventory.objects.filter(pk=inv.pk).update(cost_initial=agg["ci"] or 0, cost_balance=agg["cb"] or 0)
+                fill_totals(inv)
                 rebuild_stats(inv)
         self.stdout.write(f"стоимость восстановлена у позиций: {n}; пересчитано описей: {len(inv_ids)}")

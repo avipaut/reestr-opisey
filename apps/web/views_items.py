@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -75,7 +75,8 @@ def _inventories_xlsx(f, request):
     Node.fill_trails(inv.node for inv in invs)
     headers = ["Учреждение", "Файл", "Позиций", "Количество, шт.", "Первонач. стоимость, сом",
                "Балансовая стоимость, сом", "Вид источника", "Основа стоимостей", "ПРОВЕРИТЬ", "Дата источника",
-               "Принята", "Версий у узла", "Путь к файлу"]
+               "Принята", "Версий у узла", "Путь к файлу", "Исключено (меры)", "Подозрительные (не в своде)", "Без кода", "Кодов учёта",
+               "Накоп. износ, сом", "Загружена", "Как загружена", "Откуда загружена", "Обход №"]
 
     def rows():
         for inv in invs:
@@ -83,17 +84,20 @@ def _inventories_xlsx(f, request):
                    inv.cost_balance, inv.source_kind, inv.cost_basis, "да" if inv.check_flag else "",
                    inv.source_date.strftime("%d.%m.%Y") if inv.source_date else "",
                    timezone.localtime(inv.valid_from).strftime("%d.%m.%Y %H:%M") if inv.valid_from else "",
-                   inv.versions, inv.source_file.path]
+                   inv.versions, inv.source_file.path, inv.rows_excluded, inv.rows_held, inv.rows_no_code, inv.codes,
+                   inv.depreciation, timezone.localtime(inv.parsed_at).strftime("%d.%m.%Y %H:%M"),
+                   inv.get_loaded_via_display(), inv.loaded_where, inv.scan_run_id or ""]
 
     params = [("Параметр", "Значение"), ("Вид", "Описи"), *f.params(), ("Описей", len(invs)),
               ("Кто выгрузил", request.user.get_username()), ("Когда", timezone.localtime().strftime("%d.%m.%Y %H:%M"))]
-    return xlsx_file("Описи", write_xlsx([("Описи", headers, rows, {"filter": True, "widths": {1: 40, 2: 40, 7: 30, 13: 60}}),
+    return xlsx_file("Описи", write_xlsx([("Описи", headers, rows, {"filter": True, "widths": {1: 40, 2: 40, 7: 30, 13: 60, 20: 60}}),
                                           ("Параметры", None, lambda: params, {"widths": {1: 26, 2: 80}})]))
 
 
 @login_required
 def inventory_detail(request, pk):
-    inv = get_object_or_404(Inventory.objects.select_related("node", "source_file", "decided_by"), pk=pk)
+    inv = get_object_or_404(Inventory.objects.select_related("node", "source_file", "decided_by", "loaded_by",
+                                                             "scan_run"), pk=pk)
     f = ItemFilter(request, base=inv.items.all())
     qs = f.qs.select_related("status", "object_type").order_by("sheet", "row_no")
     if request.GET.get("export") == "xlsx":
@@ -106,7 +110,21 @@ def inventory_detail(request, pk):
     tot = _totals(f.qs)
     return render(request, "web/inventory_detail.html", {
         "inv": inv, "f": f, "page": _page(request, qs, count=tot["rows"]), "tot": tot, "versions": versions,
-        "rules": inv.rules.all(), **choices(), "nav": "inventories"})
+        "rules": inv.rules.all(), "breakdown": _breakdown(inv), **choices(), "nav": "inventories"})
+
+
+def _breakdown(inv):
+    """Статистика описи: по коду учёта, статусу, листу. Количество и деньги — без
+    мер и отложенных подозрительных (как в своде), строк — все."""
+    inc = stats.COUNTED
+
+    def by(field):
+        return list(inv.items.values(k=F(field)).annotate(
+            rows=Count("id"), excl=Count("id", filter=~inc), qty=Sum("qty", filter=inc),
+            cost=Sum("cost_initial", filter=inc), bal=Sum("cost_balance", filter=inc)).order_by("k"))
+
+    return [("По коду учёта", "Код", by("recommended_code")), ("По статусу", "Статус", by("status__name")),
+            ("По листу", "Лист", by("sheet"))]
 
 
 # ------------------------------------------------------------------ поиск

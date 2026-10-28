@@ -5,12 +5,12 @@
 
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Q
 from django.db.models.functions import Floor
 
 from apps.imports.reader import QTY_MAX
 from apps.inventories.models import Inventory, Item
-from apps.stats.services import rebuild_stats
+from apps.stats.services import fill_totals, rebuild_stats
 
 
 class Command(BaseCommand):
@@ -31,5 +31,5 @@ class Command(BaseCommand):
                 n += 1
             for inv in Inventory.objects.filter(pk__in=inv_ids):
                 rebuild_stats(inv)
-                Inventory.objects.filter(pk=inv.pk).update(qty=inv.items.aggregate(q=Sum("qty"))["q"] or 0)
+                fill_totals(inv)
         self.stdout.write(f"исправлено позиций: {n}; пересчитано описей: {len(inv_ids)}")

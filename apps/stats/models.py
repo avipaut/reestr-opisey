@@ -23,6 +23,7 @@ class VersionStat(models.Model):
     qty = models.DecimalField(max_digits=18, decimal_places=3, default=0)
     cost_initial = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     cost_balance = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    depreciation = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField(null=True, blank=True)
 

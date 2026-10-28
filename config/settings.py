@@ -139,6 +139,12 @@ INVENTORY_WORKERS = int(env("INVENTORY_WORKERS", "2"))
 SCAN_MEMORY_LIMIT_MB = int(env("SCAN_MEMORY_LIMIT_MB", "1500"))
 # Опись с узлом принимается сразу при обходе — база не для ручной работы (16.10.2026).
 AUTO_ACCEPT = env("AUTO_ACCEPT", "1") == "1"
+# Подозрительная первонач. стоимость: дороже SUSPECT_HIGH, дешевле SUSPECT_LOW (но больше 0),
+# отрицательная, буквы вместо числа. Такая позиция не входит в своды и итоги, пока на вкладке
+# «Подозрительные» не нажато «Верно» (решение пользователя 28.10.2026). После смены порогов —
+# manage.py recheck_suspects.
+SUSPECT_HIGH = env("SUSPECT_HIGH", "1000000000")
+SUSPECT_LOW = env("SUSPECT_LOW", "1")
 # Журналы обходов (ошибки по файлам); в тестах — во временную папку.
 IMPORT_LOG_DIR = BASE_DIR / "logs" / "import"
 if "test" in __import__("sys").argv:

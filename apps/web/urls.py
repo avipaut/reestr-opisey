@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_folders, views_items, views_nodes, views_scan
+from . import views, views_folders, views_items, views_nodes, views_scan, views_suspect
 
 urlpatterns = [
     path("", views.home, name="home"),
@@ -11,6 +11,10 @@ urlpatterns = [
     path("review/bulk/", views.review_bulk, name="review_bulk"),
     path("stats/codes/", views.stats_codes, name="stats_codes"),
     path("stats/orgs/", views.stats_orgs, name="stats_orgs"),
+    path("stats/nodes/", views.stats_nodes, name="stats_nodes"),
+    path("suspects/", views_suspect.suspect_list, name="suspects"),
+    path("suspects/<int:pk>/ok/", views_suspect.suspect_confirm, name="suspect_confirm"),
+    path("suspects/<int:pk>/undo/", views_suspect.suspect_undo, name="suspect_undo"),
     path("scans/", views.scans, name="scans"),
     path("scans/<int:pk>/", views.scan_detail, name="scan_detail"),
     path("scans/<int:pk>/progress/", views_scan.scan_progress, name="scan_progress"),

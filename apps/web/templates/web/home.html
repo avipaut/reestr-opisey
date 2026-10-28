@@ -9,6 +9,7 @@
 </form>
 
 {% if running %}<div class="alert">Идёт обход: {{ running.roots_label }} <a href="{% url 'scan_detail' running.pk %}">ход обхода →</a></div>{% endif %}
+{% if held.n %}<div class="alert">Подозрительная стоимость — не в сводах, пока не подтверждена: {{ held.rows|num }} поз. в {{ held.n|num }} оп. <a href="{% url 'suspects' %}">проверить →</a></div>{% endif %}
 {% if pending %}<div class="alert">Ждут просмотра: {{ pending|num }} оп. <a href="{% url 'review_list' %}">открыть →</a></div>{% endif %}
 
 <div class="tiles">
@@ -19,10 +20,25 @@
   <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:0 }}</div></div>
 </div>
 
+{% if by_status %}
+<div class="card"><h2>По статусам <span class="muted">актуальные описи, без мер и неподтверждённых подозрительных</span></h2>
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Статус</th><th class="n">Описей</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th>Доля в количестве</th><th class="n">Первонач. стоимость, сом</th><th class="n">Накоп. износ, сом</th><th class="n">Балансовая стоимость, сом</th></tr></thead>
+    <tbody>{% for r in by_status %}<tr>
+      <td>{% if r.status_id %}<a href="{% url 'items_search' %}?status={{ r.status_id }}" title="Позиции с этим статусом">{{ r.status__name }}</a>{% else %}без статуса{% endif %}</td>
+      <td class="n">{{ r.invs|num }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td>
+      <td class="share"><span class="bar"><i style="width: {{ r.share|stringformat:'.1f' }}%"></i></span><span class="muted">{{ r.share|num:1 }}%</span></td>
+      <td class="n">{{ r.ci|num:0 }}</td><td class="n">{{ r.dep|num:0 }}</td><td class="n">{{ r.cb|num:0 }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <div class="pad muted"><a href="{% url 'stats_nodes' %}">По учреждениям и подведам, с отбором по статусам →</a></div>
+</div>
+{% endif %}
+
 <div class="home-grid">
   <div class="card"><h2>Своды и отчёты</h2>
     <ul class="links">
       <li><a href="{% url 'stats_codes' %}">Свод по кодам учёта <span class="muted">количество по коду и статусу</span></a></li>
+      <li><a href="{% url 'stats_nodes' %}">Свод по подведам <span class="muted">описи, позиции, стоимости и статусы по учреждениям</span></a></li>
       <li><a href="{% url 'stats_orgs' %}">Код × учреждение <span class="muted">коды по учреждениям и подведам</span></a></li>
       <li><a href="{% url 'inventories' %}">Описи <span class="muted">актуальные и на дату</span></a></li>
       <li><a href="{% url 'nodes' %}">Учреждения <span class="muted">дерево учреждений и подведов</span></a></li>

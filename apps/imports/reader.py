@@ -169,6 +169,8 @@ def _list_sheet(ws, out_items, unknown_cols):
             v = get(f)
             if f in MONEY:
                 it[f] = money(v)
+                if f == "cost_initial" and it[f] is None and text(v):
+                    it["cost_initial_raw"] = text(v)[:500]  # буквы вместо числа — текст не теряем
             elif f in CODES:
                 it[f] = code(v)
             elif f in ("qty", "priority", "source_row", "fully_depreciated"):
@@ -214,7 +216,10 @@ def _list_sheet(ws, out_items, unknown_cols):
         it["extra"] = {name: text(vals[i]) for i, name in unknown if i < len(vals) and text(vals[i])}
         it["inv_key"] = inv_key(it["inv_no"])
         it["search"] = norm(" ".join(x for x in (it["name"], it["inv_no"], it["model"]) if x))
-        h = hashlib.md5("\x1f".join(str(it.get(f) or "") for f in COLUMNS).encode("utf-8")).hexdigest()
+        # Текст стоимости — в хеш, только когда он есть: у прежних книг хеш строки не меняется.
+        raw = it.get("cost_initial_raw")
+        h = hashlib.md5(("\x1f".join(str(it.get(f) or "") for f in COLUMNS)
+                         + ("\x1f" + raw if raw else "")).encode("utf-8")).hexdigest()
         it["row_hash"] = h
         out_items.append(it)
     return True

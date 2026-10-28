@@ -17,7 +17,7 @@
       <td class="nw">{{ it.status|default:"—" }}{% if it.status.name != it.status_doc and it.status_doc %} <span class="tag" title="по описи: {{ it.status_doc }}">изменён</span>{% endif %}</td>
       <td class="n">{{ it.priority|default_if_none:"" }}</td>
       <td class="n">{% if it.qty_note %}<span class="tag warn" title="{{ it.qty_note }}">кол-во исправлено</span> {% endif %}{{ it.qty|num }}</td>
-      <td class="n">{{ it.cost_initial|num:2 }}</td>
+      <td class="n">{% if it.cost_initial_raw %}<span class="minus" title="В описи не число">«{{ it.cost_initial_raw }}»</span>{% else %}{{ it.cost_initial|num:2 }}{% endif %}{% if it.held %} <span class="tag warn" title="Подозрительная стоимость — не входит в своды, пока на вкладке «Подозрительные» не нажато «Верно»">не в своде</span>{% endif %}</td>
       <td class="n">{{ it.cost_balance|num:2 }}</td>
       <td class="muted clip" title="{{ it.object_type|default:'' }}">{{ it.object_type|default:"" }}</td>
       <td class="muted nw">{{ it.sheet }}, {{ it.row_no }}</td>
