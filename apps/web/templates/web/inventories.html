@@ -7,6 +7,7 @@
   <label class="wide">Учреждение, файл или организация<input type="text" name="q" value="{{ q }}"></label>
   <label class="wide">Учреждение (с подведами){% with np_node=node %}{% include "web/_node_picker.html" %}{% endwith %}</label>
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
+  {% include "web/_flags.html" %}
   {% if f.sort != "node" %}<input type="hidden" name="sort" value="{{ f.sort }}">{% endif %}
   <button class="btn primary" type="submit">Показать</button>
   {% if f.active %}<a class="btn" href="?">Сбросить</a>{% endif %}
@@ -32,11 +33,13 @@
     </div>
   </details>
 </form>
+{% include "web/_counted.html" with extra="Числа описи — по её позициям; «Не учтено» — позиции видов, которые флаги оставили за счётом." %}
 <div class="tiles">
   <div class="tile"><div class="k">Описей</div><div class="v">{{ tot.n|num }}</div></div>
   <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
   <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
   <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:2 }}</div></div>
+  <div class="tile" title="Позиции видов, которые флаги «Учитывать» оставили за счётом"><div class="k">Не учтено, позиций</div><div class="v">{{ tot.out|num }}</div></div>
 </div>
 <div class="card">
   {% if page.object_list %}
@@ -47,6 +50,7 @@
       <th class="n"><a class="sort{% if f.sort == 'rows' %} on{% endif %}" href="{{ sorts.rows }}">Позиций{% if f.sort == 'rows' %} ↓{% endif %}</a></th>
       <th class="n"><a class="sort{% if f.sort == 'qty' %} on{% endif %}" href="{{ sorts.qty }}">Количество, шт.{% if f.sort == 'qty' %} ↓{% endif %}</a></th>
       <th class="n"><a class="sort{% if f.sort == 'cost' %} on{% endif %}" href="{{ sorts.cost }}">Первонач. стоимость, сом{% if f.sort == 'cost' %} ↓{% endif %}</a></th>
+      <th class="n"><a class="sort{% if f.sort == 'out' %} on{% endif %}" href="{{ sorts.out }}" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено, позиций{% if f.sort == 'out' %} ↓{% endif %}</a></th>
       <th>Дата источника</th>
       <th><a class="sort{% if f.sort == 'new' %} on{% endif %}" href="{{ sorts.new }}">Принята{% if f.sort == 'new' %} ↓{% endif %}</a></th>
       <th class="n"><a class="sort{% if f.sort == 'versions' %} on{% endif %}" href="{{ sorts.versions }}">Версий{% if f.sort == 'versions' %} ↓{% endif %}</a></th>
@@ -54,7 +58,7 @@
     <tbody>{% for inv in page.object_list %}<tr>
       <td class="node"><a href="{% url 'inventory_detail' inv.pk %}">{{ inv.node.trail|default:"узел не указан" }}</a></td>
       <td class="wrap muted">{{ inv.source_file.name }}{% if inv.check_flag %} <span class="tag warn">ПРОВЕРИТЬ</span>{% endif %}</td>
-      <td class="n">{{ inv.rows|num }}</td><td class="n">{{ inv.qty|num }}</td><td class="n">{{ inv.cost_initial|num:2 }}</td>
+      <td class="n">{{ inv.f.rows|num }}</td><td class="n">{{ inv.f.qty|num }}</td><td class="n">{{ inv.f.ci|num:2 }}</td><td class="n muted">{{ inv.f.out|num }}</td>
       <td class="nw">{{ inv.source_date|date:"d.m.Y"|default:"—" }}</td><td class="nw muted">{{ inv.valid_from|date:"d.m.Y H:i" }}</td>
       <td class="n">{{ inv.versions }}</td></tr>{% endfor %}</tbody>
   </table></div>

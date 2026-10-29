@@ -59,29 +59,40 @@ def inventories(request):
     f = InventoryFilter(request)
     if request.GET.get("export") == "xlsx":
         return _inventories_xlsx(f, request)
-    tot = f.qs.aggregate(n=Count("id"), rows=Sum("rows"), qty=Sum("qty"), cost=Sum("cost_initial"))
-    page = _page(request, f.qs, 50, count=tot["n"])
-    Node.fill_trails(inv.node for inv in page)
+    ordered = f.ordered()
+    tot = {"n": len(ordered), "rows": sum(x["rows"] for _, x in ordered), "qty": sum(x["qty"] for _, x in ordered),
+           "cost": sum(x["ci"] for _, x in ordered), "out": sum(x["out"] for _, x in ordered)}
+    page = _page(request, ordered, 50)
+    by_id = f.qs.in_bulk([i for i, _ in page.object_list])
+    page.object_list = [by_id[i] for i, _ in page.object_list]
+    for inv, (_, x) in zip(page.object_list, ordered[page.start_index() - 1:page.end_index()]):
+        inv.f = x
+    Node.fill_trails(inv.node for inv in page.object_list)
     qs_base = request.GET.copy()
     qs_base.pop("export", None)
     return render(request, "web/inventories.html", {
-        "page": page, "tot": tot, "f": f, "node": f.node, "q": f.q, "date": f.date, **inventory_choices(),
+        "page": page, "tot": tot, "f": f, "node": f.node, "q": f.q, "date": f.date, "flags": f.flags, **inventory_choices(),
         "sorts": {k: f.sort_url(k) for k in f.SORTS}, "qs_base": qs_base, "nav": "inventories"})
 
 
 def _inventories_xlsx(f, request):
     """Список описей выборки в Excel — по строке на опись, со всеми условиями отбора."""
-    invs = list(f.qs.defer("summary_lines", "unknown_columns", "proposed_path"))
+    ordered = f.ordered()
+    by_id = f.qs.defer("summary_lines", "unknown_columns", "proposed_path").in_bulk([i for i, _ in ordered])
+    invs = []
+    for i, x in ordered:
+        by_id[i].f = x
+        invs.append(by_id[i])
     Node.fill_trails(inv.node for inv in invs)
-    headers = ["Учреждение", "Файл", "Позиций", "Количество, шт.", "Первонач. стоимость, сом",
-               "Балансовая стоимость, сом", "Вид источника", "Основа стоимостей", "ПРОВЕРИТЬ", "Дата источника",
+    headers = ["Учреждение", "Файл", "Позиций", "Количество, шт.", "Первонач. стоимость, сом", "Не учтено, позиций",
+               "Строк в описи", "Балансовая стоимость (свод по умолчанию), сом", "Вид источника", "Основа стоимостей", "ПРОВЕРИТЬ", "Дата источника",
                "Принята", "Версий у узла", "Путь к файлу", "Исключено (меры)", "Подозрительные (не в своде)", "Без кода", "Кодов учёта",
                "Накоп. износ, сом", "Загружена", "Как загружена", "Откуда загружена", "Обход №"]
 
     def rows():
         for inv in invs:
-            yield [inv.node.trail if inv.node else "", inv.source_file.name, inv.rows, inv.qty, inv.cost_initial,
-                   inv.cost_balance, inv.source_kind, inv.cost_basis, "да" if inv.check_flag else "",
+            yield [inv.node.trail if inv.node else "", inv.source_file.name, inv.f["rows"], inv.f["qty"], inv.f["ci"], inv.f["out"],
+                   inv.rows, inv.cost_balance, inv.source_kind, inv.cost_basis, "да" if inv.check_flag else "",
                    inv.source_date.strftime("%d.%m.%Y") if inv.source_date else "",
                    timezone.localtime(inv.valid_from).strftime("%d.%m.%Y %H:%M") if inv.valid_from else "",
                    inv.versions, inv.source_file.path, inv.rows_excluded, inv.rows_held, inv.rows_no_code, inv.codes,
@@ -107,21 +118,37 @@ def inventory_detail(request, pk):
                                    request, trails={inv.pk: trail})
     versions = (Inventory.objects.filter(node=inv.node, state=Inventory.State.ACCEPTED).order_by("-valid_from")
                 if inv.node_id else [])
-    tot = _totals(f.qs)
+    tot = f.totals()
     return render(request, "web/inventory_detail.html", {
         "inv": inv, "f": f, "page": _page(request, qs, count=tot["rows"]), "tot": tot, "versions": versions,
-        "rules": inv.rules.all(), "breakdown": _breakdown(inv), **choices(), "nav": "inventories"})
+        "rules": inv.rules.all(), "breakdown": _breakdown(inv, f.flags), "flags": f.flags,
+        "invtot": _inv_totals(inv, f.flags), **choices(),
+        "keep_inputs": [(k, v) for k in request.GET if k not in ("inc", "page", "export") for v in request.GET.getlist(k)],
+        "nav": "inventories"})
 
 
-def _breakdown(inv):
-    """Статистика описи: по коду учёта, статусу, листу. Количество и деньги — без
-    мер и отложенных подозрительных (как в своде), строк — все."""
-    inc = stats.COUNTED
+def _inv_totals(inv, flags):
+    """Итоги описи целиком по флагам «учитывать» (без отборов страницы)."""
+    inc = flags.item_q()
+    agg = inv.items.aggregate(rows=Count("id", filter=inc), qty=Sum("qty", filter=inc),
+                              ci=Sum("cost_initial", filter=inc), dep=Sum("depreciation", filter=inc),
+                              cb=Sum("cost_balance", filter=inc), all=Count("id"))
+    agg["out"] = agg["all"] - agg["rows"]
+    return agg
+
+
+def _breakdown(inv, flags):
+    """Статистика описи: по коду учёта, статусу, листу — по флагам «учитывать»; «не учтено» —
+    позиции видов, которые флаги оставили за счётом."""
+    inc = flags.item_q()
 
     def by(field):
-        return list(inv.items.values(k=F(field)).annotate(
-            rows=Count("id"), excl=Count("id", filter=~inc), qty=Sum("qty", filter=inc),
+        rows = list(inv.items.values(k=F(field)).annotate(
+            rows=Count("id", filter=inc), all=Count("id"), qty=Sum("qty", filter=inc),
             cost=Sum("cost_initial", filter=inc), bal=Sum("cost_balance", filter=inc)).order_by("k"))
+        for r in rows:
+            r["out"] = r["all"] - r["rows"]
+        return rows
 
     return [("По коду учёта", "Код", by("recommended_code")), ("По статусу", "Статус", by("status__name")),
             ("По листу", "Лист", by("sheet"))]
@@ -141,9 +168,9 @@ def items_search(request):
         Node.fill_trails(i.node for i in invs)
         return items_xlsx_response("Выборка позиций", qs, f.params(), request,
                                    trails={i.pk: i.node.trail if i.node else "" for i in invs})
-    ctx = {"f": f, **choices(), "nav": "items"}
+    ctx = {"f": f, "flags": f.flags, **choices(), "nav": "items"}
     if f.active:
-        tot = _totals(f.qs)
+        tot = f.totals()
         page = _page(request, qs.select_related("inventory__node"), count=tot["rows"])
         Node.fill_trails(it.inventory.node for it in page)
         ctx.update(page=page, tot=tot)

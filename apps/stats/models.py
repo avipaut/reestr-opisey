@@ -24,6 +24,12 @@ class VersionStat(models.Model):
     cost_initial = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     cost_balance = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     depreciation = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    # Вид строк — для флагов «учитывать» (apps.stats.flags; решение пользователя 29.10.2026:
+    # «адаптировать все сборы статистики, все числа в интерфейсе под флаги»): свод хранит все
+    # позиции версии, вид — ключ строки свода. Устаревшая опись — признак описи (outdated_by).
+    measure = models.BooleanField("меры", default=False)
+    suspect = models.BooleanField("подозрительная стоимость не подтверждена", default=False)
+    dup = models.BooleanField("повтор строки другой описи", default=False)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField(null=True, blank=True)
 
@@ -61,3 +67,22 @@ class CodeGroup(models.Model):
 
     def matches(self, code):
         return any((code or "").startswith(p) for p in self.prefix_list)
+
+
+class SavedQuery(models.Model):
+    """Сохранённый запрос конструктора (решение пользователя 29.10.2026: конструктор запросов
+    с группировкой, отборами, выгрузкой и сохранёнными запросами). Общий для всех
+    пользователей; удаляет автор или администратор."""
+    name = models.CharField("название", max_length=200, unique=True)
+    query = models.TextField("параметры (адрес)")
+    created_by = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name="+", verbose_name="кто сохранил")
+    created_at = models.DateTimeField("когда", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "сохранённый запрос"
+        verbose_name_plural = "сохранённые запросы"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

@@ -3,6 +3,7 @@
 
 import datetime as dt
 import io
+from decimal import Decimal
 import os
 import shutil
 import tempfile
@@ -158,12 +159,12 @@ class CodeGroupsTests(TransactionTestCase):
     def test_group_sum_in_reports(self):
         r = self.client.get(reverse("stats_codes"))
         g = r.context["groups"][0]
-        self.assertEqual((g["name"], g["total"]), ("31123 12/13", 2))
-        self.assertEqual(r.context["grand"], 5, "итог — по кодам, группы не двоят")
+        self.assertEqual((g["name"], g["total"][1]), ("31123 12/13", 2))
+        self.assertEqual(r.context["grand"][1], 5, "итог — по кодам, группы не двоят")
         r = self.client.get(reverse("stats_orgs"))
-        self.assertEqual(r.context["gtotals"], [2])
+        self.assertEqual([t[1] for t in r.context["gtotals"]], [2])
         wb = openpyxl.load_workbook(io.BytesIO(self.client.get(reverse("stats_orgs") + "?export=xlsx").content))
-        self.assertEqual(wb.active["B1"].value, "Σ 31123 12/13, шт.")
+        self.assertEqual((wb.active["B1"].value, wb.active["C1"].value), ("Σ 31123 12/13, позиций", "Σ 31123 12/13, шт."))
 
 
 @override_settings(AUTO_ACCEPT=True)
@@ -475,7 +476,7 @@ class InventoryFiltersTests(TransactionTestCase):
         r = self.client.get(reverse("inventories"), {"check": "1", "export": "xlsx"})
         wb = openpyxl.load_workbook(io.BytesIO(r.content))
         rows = list(wb["Описи"].iter_rows(min_row=2, values_only=True))
-        self.assertEqual([(x[0], x[1], x[2], x[8]) for x in rows], [("127", "!опись.xlsx", 1, "да")])
+        self.assertEqual([(x[0], x[1], x[2], x[10]) for x in rows], [("127", "!опись.xlsx", 1, "да")])
         params = dict(wb["Параметры"].iter_rows(min_row=2, values_only=True))
         self.assertEqual((params["Пометка «ПРОВЕРИТЬ»"], params["Описей"]), ("есть", 1))
 
@@ -520,13 +521,15 @@ class StatsNodesTests(TransactionTestCase):
         self.assertEqual(ws.cell(ws.max_row, 3).value, 4)
 
     def test_inventory_of_measures_only_is_counted(self):
-        """Опись из одних мер в своде версий не видна — в своде по подведам считается."""
+        """Опись из одних мер: без флага «Меры» её строка — «не учтено», с флагом — в счёте
+        (флаги «учитывать», 29.10.2026)."""
         make_book(os.path.join(self.root, "126", "8. А", "меры.xlsx"),
                   [row("т", "31123130", "Основной список", qty=2.5, inv="20", cost=500)])
         services.scan([self.root], workers=1)
-        r = self.client.get(reverse("stats_nodes"))
-        (t,) = r.context["table"]
-        self.assertEqual((t["nodes"], t["invs"], t["rows"], t["excl"], t["qty"]), (4, 5, 8, 1, 11))
+        (t,) = self.client.get(reverse("stats_nodes")).context["table"]
+        self.assertEqual((t["invs"], t["rows"], t["out"], t["qty"]), (4, 7, 1, 11))
+        (t,) = self.client.get(reverse("stats_nodes"), {"inc": "measure"}).context["table"]
+        self.assertEqual((t["invs"], t["rows"], t["out"], t["qty"]), (5, 8, 0, Decimal("13.5")))
 
     def test_status_statistics_and_filter(self):
         """Статистика по статусам и отбор по ним (пользователь 27.10.2026: «фильтровать
@@ -552,7 +555,7 @@ class StatsNodesTests(TransactionTestCase):
         self.assertEqual(wb.sheetnames, ["Подведы", "По статусам", "Параметры"])
         self.assertEqual(dict(wb["Параметры"].iter_rows(min_row=2, values_only=True))["Статусы"], "Резерв")
         r = self.client.get(reverse("stats_orgs"), {"status": reserve.pk})
-        self.assertEqual(r.context["grand"], 2)
+        self.assertEqual(r.context["grand"][1], 2)
         r = self.client.get(reverse("home"))  # и на «Обзоре»
         self.assertEqual({x["status__name"]: x["qty"] for x in r.context["by_status"]},
                          {"Основной список": 3, "Резерв": 2, "Не требует оценки": 6})
@@ -629,12 +632,12 @@ class SuspectsTests(TransactionTestCase):
         from apps.stats.models import VersionStat
         inv = self.inv("Дорогая")
         self.assertEqual((inv.rows, inv.rows_held, inv.qty, inv.cost_initial), (2, 1, 1, 5000))
-        self.assertEqual(sum(v.rows for v in VersionStat.objects.filter(inventory=inv)), 1)
+        self.assertEqual(sum(v.rows for v in VersionStat.objects.filter(inventory=inv, suspect=False)), 1)
         home = self.client.get(reverse("home"))
         self.assertEqual(home.context["held"], {"n": 3, "rows": 3})
         n126 = Node.objects.get(path="/126/")
         nodes = self.client.get(reverse("stats_nodes"), {"parent": n126.pk}).context["table"]
-        self.assertEqual({t["node"].name: t["held"] for t in nodes}["Дорогая"], 1)
+        self.assertEqual({t["node"].name: t["out"] for t in nodes}["Дорогая"], 1, "подозрительная — «не учтено»")
         # «Верно» — в свод, в т. ч. «на прошлые даты»; в списке подтверждённых; отмена — обратно.
         r = self.client.post(reverse("suspect_confirm", args=[inv.pk]), {"next": reverse("suspects")})
         self.assertRedirects(r, reverse("suspects"), fetch_redirect_response=False)
@@ -685,7 +688,7 @@ class SuspectsTests(TransactionTestCase):
                                ("Шкаф", "3"): "не число: «сто сом»"})
 
 
-@override_settings(AUTO_ACCEPT=True)
+@override_settings(AUTO_ACCEPT=True, DUP_MIN_COST="0")  # строки дешёвые — порог повтора снят
 class DupScreensTests(TransactionTestCase):
     """«Дубли описей»: группы видны в вебе и выгружаются (пользователь 28.10.2026: «пускай
     в вебе показывается. С возможностью выгрузки оттуда»)."""
@@ -721,3 +724,55 @@ class DupScreensTests(TransactionTestCase):
         small = Inventory.objects.get(source_file__name="ОСВ — Sheet1.xlsx")
         r = self.client.get(reverse("inventory_detail", args=[small.pk]) + "?dup=dup")
         self.assertContains(r, "повторов строк других описей")
+
+
+@override_settings(AUTO_ACCEPT=True)
+class FlagsAndQueryTests(TransactionTestCase):
+    """Флаги «учитывать» во всех числах и конструктор запросов (пользователь 29.10.2026:
+    «адаптировать все сборы статистики, все числа в интерфейсе под флаги»; «добавить
+    страницу — конструктор запросов»)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        make_book(os.path.join(self.root, "126", "8. А", "опись.xlsx"),
+                  BASE + [row("т", "31123130", "Основной список", qty=2.5, inv="20", cost=500)])
+        services.scan([self.root], workers=1)
+        self.client.force_login(User.objects.create_superuser("t", "", "pw-12345678"))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_flag_changes_every_summary(self):
+        plain, measure = {}, {"inc": "measure"}
+        codes = [self.client.get(reverse("stats_codes"), q).context["grand"] for q in (plain, measure)]
+        self.assertEqual(codes[1][0] - codes[0][0], 1, "мера — одна строка сверху")
+        home = [self.client.get(reverse("home"), q).context["tot"] for q in (plain, measure)]
+        self.assertEqual((home[0]["out"], home[1]["out"]), (1, 0))
+        self.assertEqual(home[1]["rows"], codes[1][0], "главная и свод по кодам считают одинаково")
+        invs = [self.client.get(reverse("inventories"), q).context["tot"] for q in (plain, measure)]
+        self.assertEqual((invs[0]["rows"], invs[1]["rows"]), (codes[0][0], codes[1][0]))
+        items = [self.client.get(reverse("items_search"), {"code": "31123130", **q}).context["tot"] for q in (plain, measure)]
+        self.assertEqual(items[1]["rows"] - items[0]["rows"], 1)
+        r = self.client.get(reverse("stats_codes"), {**measure, "export": "xlsx"})
+        params = dict(openpyxl.load_workbook(io.BytesIO(r.content))["Параметры"].iter_rows(min_row=2, values_only=True))
+        self.assertEqual(params["Учитывать"], "Меры")
+
+    def test_query_builder_groups_filters_and_saves(self):
+        self.assertRedirects(self.client.get(reverse("query")), reverse("query") + "?g1=status", fetch_redirect_response=False)
+        r = self.client.get(reverse("query"), {"g1": "status", "g2": "code"})
+        total = r.context["total"]
+        self.assertEqual(total["rows"], self.client.get(reverse("stats_codes")).context["grand"][0])
+        self.assertEqual(len(r.context["table"][0]["dims"]), 2)
+        r = self.client.get(reverse("query"), {"g1": "status", "cost_min": "10000", "m": ["rows", "qty"]})
+        self.assertEqual([k for k, _ in r.context["measures"]], ["rows", "qty"])
+        self.assertIn("стоимость от 10 000 сом", r.context["cond_text"])
+        x = self.client.get(reverse("query"), {"g1": "status", "export": "xlsx"})
+        ws = openpyxl.load_workbook(io.BytesIO(x.content)).active
+        self.assertEqual((ws["A1"].value, ws["B1"].value), ("Статус", "Позиций"))
+        self.client.post(reverse("query_save"), {"name": "Мой запрос", "query": "g1=status&inc=dup"})
+        from apps.stats.models import SavedQuery
+        q = SavedQuery.objects.get(name="Мой запрос")
+        self.assertEqual(q.query, "g1=status&inc=dup")
+        self.client.post(reverse("query_delete", args=[q.pk]))
+        self.assertFalse(SavedQuery.objects.exists())
+

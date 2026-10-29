@@ -7,12 +7,24 @@
   {% if inv.valid_from %} · действует с {{ inv.valid_from|date:"d.m.Y H:i" }}{% if inv.valid_to %} по {{ inv.valid_to|date:"d.m.Y H:i" }}{% endif %}{% endif %}
   {% if inv.source_date %} · дата источника {{ inv.source_date|date:"d.m.Y" }}{% endif %}</p>
 
+<form class="filters" method="get">
+  {% for k, v in keep_inputs %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  {% include "web/_flags.html" %}
+  <button class="btn" type="submit">Показать</button>
+</form>
+{% include "web/_counted.html" %}
 <div class="tiles">
-  <div class="tile"><div class="k">Позиций</div><div class="v">{{ inv.rows|num }}</div>{% if inv.rows_excluded %}<div class="d muted">из них мер (не в своде): {{ inv.rows_excluded|num }}</div>{% endif %}{% if inv.rows_held %}<div class="d"><a class="minus" href="?suspect=held">подозрительных (не в своде до «Верно»): {{ inv.rows_held|num }}</a></div>{% endif %}{% if inv.rows_dup %}<div class="d"><a class="minus" href="?dup=dup">повторов строк других описей (не в своде): {{ inv.rows_dup|num }}</a></div>{% endif %}{% if inv.outdated_by_id %}<div class="d minus">устарела — в группе есть опись {{ inv.outdated_by.year }} года, эта в свод не входит</div>{% endif %}{% if inv.dup_group_id %}<div class="d"><a href="{% url 'dup_detail' inv.dup_group_id %}">группа похожих описей №{{ inv.dup_group_id }}</a></div>{% endif %}</div>
-  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ inv.qty|num }}</div></div>
-  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ inv.cost_initial|num:2 }}</div></div>
-  <div class="tile"><div class="k">Накоп. износ, сом</div><div class="v">{{ inv.depreciation|num:2 }}</div></div>
-  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ inv.cost_balance|num:2 }}</div></div>
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ invtot.rows|num }}</div>
+    <div class="d muted">строк в описи: {{ invtot.all|num }}{% if invtot.out %}, не учтено: {{ invtot.out|num }}{% endif %}</div>
+    {% if inv.rows_excluded %}<div class="d muted">мер: {{ inv.rows_excluded|num }}</div>{% endif %}
+    {% if inv.rows_held %}<div class="d"><a class="minus" href="?suspect=held">подозрительных (до «Верно»): {{ inv.rows_held|num }}</a></div>{% endif %}
+    {% if inv.rows_dup %}<div class="d"><a class="minus" href="?dup=dup">повторов строк других описей: {{ inv.rows_dup|num }}</a></div>{% endif %}
+    {% if inv.outdated_by_id %}<div class="d minus">устарела — в группе есть опись {{ inv.outdated_by.year }} года{% if "old" not in flags %}; <a href="?inc=old">учесть</a>{% endif %}</div>{% endif %}
+    {% if inv.dup_group_id %}<div class="d"><a href="{% url 'dup_detail' inv.dup_group_id %}">группа похожих описей №{{ inv.dup_group_id }}</a></div>{% endif %}</div>
+  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ invtot.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ invtot.ci|num:2 }}</div></div>
+  <div class="tile"><div class="k">Накоп. износ, сом</div><div class="v">{{ invtot.dep|num:2 }}</div></div>
+  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ invtot.cb|num:2 }}</div></div>
   <div class="tile"><div class="k">Кодов учёта</div><div class="v">{{ inv.codes|num }}</div>{% if inv.rows_no_code %}<div class="d muted">позиций без кода: {{ inv.rows_no_code|num }}</div>{% endif %}</div>
 </div>
 
@@ -31,8 +43,8 @@
 
 {% for title, head, rows in breakdown %}{% if rows|length > 1 or forloop.first %}
 <div class="card"><details class="list"><summary>{{ title }} <span class="muted">{{ rows|length }}</span></summary>
-  <div class="tbl-wrap"><table class="data"><thead><tr><th>{{ head }}</th><th class="n">Позиций</th><th class="n" title="Меры и подозрительные стоимости до «Верно»">Не в своде</th><th class="n">Количество, шт.</th><th class="n">Первонач. стоимость, сом</th><th class="n">Балансовая, сом</th></tr></thead>
-  <tbody>{% for r in rows %}<tr><td class="wrap">{{ r.k|default:"—" }}</td><td class="n">{{ r.rows|num }}</td><td class="n {% if not r.excl %}muted{% endif %}">{{ r.excl|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n">{{ r.cost|num:2 }}</td><td class="n">{{ r.bal|num:2 }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>{{ head }}</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено, позиций</th><th class="n">Первонач. стоимость, сом</th><th class="n">Балансовая, сом</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td class="wrap">{{ r.k|default:"—" }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n muted">{{ r.out|num }}</td><td class="n">{{ r.cost|num:2 }}</td><td class="n">{{ r.bal|num:2 }}</td></tr>{% endfor %}</tbody></table></div>
 </details></div>
 {% endif %}{% endfor %}
 
@@ -46,7 +58,7 @@
 </details></div>
 {% endif %}
 
-{% with hide_node=1 hide_date=1 %}{% include "web/_item_filters.html" %}{% endwith %}
+{% with hide_node=1 hide_date=1 hide_flags=1 %}{% include "web/_item_filters.html" %}{% endwith %}
 {% with qs=f.querystring %}{% include "web/_items_table.html" %}{% endwith %}
 
 {% if rules %}

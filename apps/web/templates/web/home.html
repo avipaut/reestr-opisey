@@ -12,21 +12,27 @@
 {% if held.n %}<div class="alert">Подозрительная стоимость — не в сводах, пока не подтверждена: {{ held.rows|num }} поз. в {{ held.n|num }} оп. <a href="{% url 'suspects' %}">проверить →</a></div>{% endif %}
 {% if pending %}<div class="alert">Ждут просмотра: {{ pending|num }} оп. <a href="{% url 'review_list' %}">открыть →</a></div>{% endif %}
 
+<form class="filters" method="get">
+  {% include "web/_flags.html" %}
+  <button class="btn" type="submit">Показать</button>
+</form>
+{% include "web/_counted.html" with extra="Актуальные описи." %}
 <div class="tiles">
-  <div class="tile"><div class="k">Учреждений</div><div class="v">{{ orgs|num }}</div></div>
-  <div class="tile"><div class="k">Актуальных описей</div><div class="v">{{ tot.n|num }}</div></div>
+  <div class="tile"><div class="k">Учреждений верхнего уровня</div><div class="v">{{ orgs|num }}</div></div>
+  <div class="tile"><div class="k">Описей</div><div class="v">{{ tot.invs|num }}</div></div>
   <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
   <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
-  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:0 }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.ci|num:0 }}</div></div>
+  <div class="tile" title="Позиции видов, которые флаги «Учитывать» оставили за счётом"><div class="k">Не учтено, позиций</div><div class="v">{{ tot.out|num }}</div></div>
 </div>
 
 {% if by_status %}
-<div class="card"><h2>По статусам <span class="muted">актуальные описи, без мер и неподтверждённых подозрительных</span></h2>
+<div class="card"><h2>По статусам <span class="muted">актуальные описи</span></h2>
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Статус</th><th class="n">Описей</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th>Доля в количестве</th><th class="n">Первонач. стоимость, сом</th><th class="n">Накоп. износ, сом</th><th class="n">Балансовая стоимость, сом</th></tr></thead>
+    <thead><tr><th>Статус</th><th class="n">Описей</th><th class="n">Позиций</th><th class="n">Количество, шт.</th><th class="n" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено, позиций</th><th>Доля в количестве</th><th class="n">Первонач. стоимость, сом</th><th class="n">Накоп. износ, сом</th><th class="n">Балансовая стоимость, сом</th></tr></thead>
     <tbody>{% for r in by_status %}<tr>
-      <td>{% if r.status_id %}<a href="{% url 'items_search' %}?status={{ r.status_id }}" title="Позиции с этим статусом">{{ r.status__name }}</a>{% else %}без статуса{% endif %}</td>
-      <td class="n">{{ r.invs|num }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td>
+      <td>{% if r.status_id %}<a href="{% url 'items_search' %}?status={{ r.status_id }}&{{ flags.query }}" title="Позиции с этим статусом">{{ r.status__name }}</a>{% else %}без статуса{% endif %}</td>
+      <td class="n">{{ r.invs|num }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n muted">{{ r.out|num }}</td>
       <td class="share"><span class="bar"><i style="width: {{ r.share|stringformat:'.1f' }}%"></i></span><span class="muted">{{ r.share|num:1 }}%</span></td>
       <td class="n">{{ r.ci|num:0 }}</td><td class="n">{{ r.dep|num:0 }}</td><td class="n">{{ r.cb|num:0 }}</td></tr>{% endfor %}</tbody>
   </table></div>
@@ -59,7 +65,7 @@
 
   <div class="card"><h2>Недавно принятые описи</h2>
     {% if recent %}<ul class="links">{% for inv in recent %}
-      <li><a href="{% url 'inventory_detail' inv.pk %}"><span>{{ inv.node.trail|default:inv.source_file.name }}</span><span class="muted nw">{{ inv.rows|num }} поз. · {{ inv.valid_from|date:"d.m.Y" }}</span></a></li>{% endfor %}
+      <li><a href="{% url 'inventory_detail' inv.pk %}"><span>{{ inv.node.trail|default:inv.source_file.name }}</span><span class="muted nw">{{ inv.rows|num }} строк · {{ inv.valid_from|date:"d.m.Y" }}</span></a></li>{% endfor %}
     </ul>
     {% else %}<div class="empty"><b>Принятых описей нет</b><a href="{% url 'import_page' %}">Импорт описей →</a></div>{% endif %}
   </div>

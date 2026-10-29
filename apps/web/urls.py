@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_dup, views_folders, views_items, views_nodes, views_scan, views_suspect
+from . import views, views_dup, views_folders, views_items, views_nodes, views_query, views_scan, views_suspect
 
 urlpatterns = [
     path("", views.home, name="home"),
@@ -12,6 +12,9 @@ urlpatterns = [
     path("stats/codes/", views.stats_codes, name="stats_codes"),
     path("stats/orgs/", views.stats_orgs, name="stats_orgs"),
     path("stats/nodes/", views.stats_nodes, name="stats_nodes"),
+    path("query/", views_query.query_page, name="query"),
+    path("query/save/", views_query.query_save, name="query_save"),
+    path("query/<int:pk>/delete/", views_query.query_delete, name="query_delete"),
     path("suspects/", views_suspect.suspect_list, name="suspects"),
     path("suspects/<int:pk>/ok/", views_suspect.suspect_confirm, name="suspect_confirm"),
     path("suspects/<int:pk>/undo/", views_suspect.suspect_undo, name="suspect_undo"),

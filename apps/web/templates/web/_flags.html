@@ -1,0 +1,1 @@
+<fieldset class="statuses flags"><legend>Учитывать сверх свода</legend>{% for f in flags.choices %}<label class="check" title="{{ f.tip }}"><input type="checkbox" name="inc" value="{{ f.key }}" {% if f.on %}checked{% endif %}> {{ f.label }}</label>{% endfor %}</fieldset>

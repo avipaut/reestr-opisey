@@ -413,7 +413,7 @@ class ProcessedOnlyTests(TransactionTestCase):
 
 
 
-@override_settings(AUTO_ACCEPT=True)
+@override_settings(AUTO_ACCEPT=True, DUP_MIN_COST="0")  # строки дешёвые — порог повтора снят
 class RetireRootTests(TransactionTestCase):
     """Смена папки реестра: описи прежней папки снимаются с актуальных, ничего не удаляется."""
 

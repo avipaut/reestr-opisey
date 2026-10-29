@@ -33,3 +33,9 @@ def signed(v):
 def field_label(f):
     return {"name": "наименование", "recommended_code": "код", "status__name": "статус",
             "qty": "количество", "cost_initial": "первонач. стоимость"}.get(f, f)
+
+
+@register.filter
+def get(d, key):
+    """Значение словаря по ключу из переменной: {{ row|get:k }}."""
+    return d.get(key) if hasattr(d, "get") else None

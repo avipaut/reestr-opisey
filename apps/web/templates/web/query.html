@@ -1,0 +1,102 @@
+{% extends "web/base.html" %}{% load num static %}
+{% block title %}Конструктор запросов — Реестр описей{% endblock %}
+{% block content %}
+<div class="qb">
+<form class="qb-panel" method="get" id="qb-form" aria-label="Запрос">
+  <header class="qb-head">
+    <h1>Конструктор запросов</h1>
+    <p>Позиции описей, сложенные по разрезам. Все условия выполняются вместе.</p>
+  </header>
+
+  <section class="qb-sec" aria-labelledby="qb-presets-h">
+    <h2 id="qb-presets-h">Начать с готового</h2>
+    <div class="qb-chips">{% for label, qs in presets %}<a class="qb-chip" href="?{{ qs }}">{{ label }}</a>{% endfor %}
+      {% for s in saved %}<a class="qb-chip saved" href="?{{ s.query }}" title="Сохранил {{ s.created_by.get_username|default:'—' }}, {{ s.created_at|date:'d.m.Y' }}">★ {{ s.name }}</a>{% endfor %}</div>
+  </section>
+
+  <section class="qb-sec" aria-labelledby="qb-groups-h">
+    <h2 id="qb-groups-h">Разрезы <span class="qb-hint" title="Строки результата складываются по выбранным полям в порядке выбора: сначала по первому, внутри — по второму и третьему. Без разрезов — один итог по всей выборке.">?</span></h2>
+    <ol class="qb-groups" id="qb-groups">{% for g in groups %}<li class="qb-pill" data-key="{{ g }}"><span class="n">{{ forloop.counter }}</span>{% for k, label in dims %}{% if k == g %}{{ label }}{% endif %}{% endfor %}<input type="hidden" name="g{{ forloop.counter }}" value="{{ g }}"><button type="button" class="x" data-qb-ungroup aria-label="Убрать разрез">×</button></li>{% endfor %}</ol>
+    <label class="qb-add"><span class="sr-only">Добавить разрез</span>
+      <select id="qb-add-group" {% if groups|length >= 3 %}disabled{% endif %}><option value="">+ Разрез</option>{% for k, label in dims %}<option value="{{ k }}" {% if k in groups %}disabled{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    {% if not groups %}<p class="qb-note">Без разрезов — один итог по всей выборке.</p>{% endif %}
+  </section>
+
+  <section class="qb-sec" aria-labelledby="qb-cond-h">
+    <h2 id="qb-cond-h">Условия</h2>
+    <div class="qb-conds">
+      <div class="qb-cond" data-cond="q" {% if "q" not in active %}hidden{% endif %}><label>Наименование, инв. номер или модель<input type="text" name="q" value="{{ f.q }}" placeholder="например: принтер, R740"></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="node" {% if "node" not in active %}hidden{% endif %}><label>Учреждение (с подведами){% with np_node=f.node %}{% include "web/_node_picker.html" %}{% endwith %}</label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="code" {% if "code" not in active %}hidden{% endif %}><label>Рекомендуемый код начинается с<input type="text" name="code_prefix" value="{{ code_prefix }}" inputmode="numeric" placeholder="например: 31123"></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="status" {% if "status" not in active %}hidden{% endif %}><label>Статус<select name="status"><option value="">все</option>{% for s in statuses %}<option value="{{ s.pk }}" {% if f.status.pk == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="priority" {% if "priority" not in active %}hidden{% endif %}><label>Приоритет<select name="priority"><option value="">все</option>{% for p in priorities %}<option {% if f.priority == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="otype" {% if "otype" not in active %}hidden{% endif %}><label>Тип объекта<select name="otype"><option value="">все</option>{% for t in otypes %}<option value="{{ t.pk }}" {% if f.otype.pk == t.pk %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="sheet" {% if "sheet" not in active %}hidden{% endif %}><label>Лист<select name="sheet"><option value="">все</option>{% for s in sheets %}<option {% if f.sheet == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="year" {% if "year" not in active %}hidden{% endif %}><label>Год описи<select name="year"><option value="">все</option>{% for y in years %}<option {% if year == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="cost" {% if "cost" not in active %}hidden{% endif %}><fieldset><legend>Первонач. стоимость, сом</legend><div class="qb-range"><input type="text" name="cost_min" value="{{ f.cost_min|default_if_none:'' }}" inputmode="decimal" placeholder="от" aria-label="Стоимость от"><input type="text" name="cost_max" value="{{ f.cost_max|default_if_none:'' }}" inputmode="decimal" placeholder="до" aria-label="Стоимость до"></div></fieldset><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+      <div class="qb-cond" data-cond="date" {% if "date" not in active %}hidden{% endif %}><label>На дату<input type="date" name="date" value="{{ f.date }}"></label><button type="button" class="x" data-qb-uncond aria-label="Убрать условие">×</button></div>
+    </div>
+    <label class="qb-add"><span class="sr-only">Добавить условие</span>
+      <select id="qb-add-cond"><option value="">+ Условие</option>{% for k, label, keys in conds %}<option value="{{ k }}" {% if k in active %}disabled{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    {% if not active %}<p class="qb-note">Без условий — все позиции актуальных описей.</p>{% endif %}
+  </section>
+
+  <section class="qb-sec" aria-labelledby="qb-flags-h">
+    <h2 id="qb-flags-h">Учитывать сверх свода <span class="qb-hint" title="По умолчанию в счёт не входят повторы строк, устаревшие описи, меры и подозрительные стоимости — как во всех сводах. Отметьте, что добавить.">?</span></h2>
+    <div class="qb-chips">{% for x in flags.choices %}<label class="qb-toggle" title="{{ x.tip }}"><input type="checkbox" name="inc" value="{{ x.key }}" {% if x.on %}checked{% endif %}><span>{{ x.label }}</span></label>{% endfor %}</div>
+  </section>
+
+  <section class="qb-sec" aria-labelledby="qb-m-h">
+    <h2 id="qb-m-h">Столбцы</h2>
+    <div class="qb-chips">{% for k, label in all_measures %}<label class="qb-toggle"><input type="checkbox" name="m" value="{{ k }}" {% if k in picked_m %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div>
+  </section>
+
+  <footer class="qb-foot">
+    {% if asked %}<p class="qb-big"><b>{{ total.rows|num }}</b> позиций · {{ total.qty|num }} шт.</p>{% endif %}
+    <div class="qb-actions">
+      <button class="btn primary" type="submit">Показать</button>
+      {% if asked %}<button class="btn" type="submit" name="export" value="xlsx">Excel</button><a class="btn" href="?">Сбросить</a>{% endif %}
+    </div>
+  </footer>
+</form>
+
+<section class="qb-result" id="qb-result" aria-live="polite">
+  {% if asked %}
+  <header class="qb-rhead">
+    <div>
+      <h2>{{ title }}</h2>
+      <p class="qb-conds-text">{% for c in cond_text %}<span>{{ c }}</span>{% endfor %}</p>
+      <p class="qb-counted">{{ flags.summary }}. Позиций — строк описей; шт. — сумма столбца «Количество».</p>
+    </div>
+    <form class="qb-save" method="post" action="{% url 'query_save' %}">{% csrf_token %}
+      <input type="hidden" name="query" value="{{ here }}">
+      <label><span class="sr-only">Название запроса</span><input type="text" name="name" maxlength="200" required placeholder="Название запроса"></label>
+      <button class="btn" type="submit">Сохранить</button>
+    </form>
+  </header>
+  <p class="qb-stale" hidden>Условия изменены — нажмите «Показать», чтобы пересчитать.</p>
+  {% if table %}
+  <div class="tbl-wrap"><table class="data qb-table pin1">
+    <thead><tr>{% for h in group_heads %}<th>{{ h }}</th>{% empty %}<th>Выборка</th>{% endfor %}{% for k, label in measures %}<th class="n" title="{% if k == 'out' %}Позиции видов, которые флаги «Учитывать» оставили за счётом{% else %}{{ label }}{% endif %}">{{ short|get:k }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for t in table %}<tr{% if group_heads|length > 1 and t.show.0 and not forloop.first %} class="grp-start"{% endif %}>{% for d in t.show %}<td class="wrap">{{ d }}</td>{% empty %}<td>Все позиции</td>{% endfor %}
+      {% for k, label in measures %}<td class="n{% if k == 'out' %} muted{% endif %}">{% if k == "ci" or k == "dep" or k == "cb" %}{{ t|get:k|num:2 }}{% else %}{{ t|get:k|num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    {% if group_heads %}<tfoot><tr><td colspan="{{ group_heads|length }}">Итого · строк {{ count|num }}</td>
+      {% for k, label in measures %}<td class="n">{% if k == "ci" or k == "dep" or k == "cb" %}{{ total|get:k|num:2 }}{% else %}{{ total|get:k|num }}{% endif %}</td>{% endfor %}</tr></tfoot>{% endif %}
+  </table></div>
+  {% if more %}<p class="qb-note pad">Показаны первые {{ table|length|num }} строк, ещё {{ more|num }} — в выгрузке Excel.</p>{% endif %}
+  {% else %}
+  <div class="qb-state"><b>По этим условиям позиций нет</b><span>Смягчите условия: уберите статус или год, расширьте диапазон стоимости, включите «Учитывать».</span></div>
+  {% endif %}
+  {% else %}
+  <div class="qb-state start"><b>Соберите запрос слева</b><span>Начните с готового — например, «Коды × статус», — или добавьте разрезы и условия и нажмите «Показать». Результат можно выгрузить в Excel и сохранить для всех.</span></div>
+  {% endif %}
+  {% if saved %}
+  <details class="qb-saved"><summary>Сохранённые запросы <span class="muted">{{ saved|length }}</span></summary>
+    <ul>{% for s in saved %}<li><a href="?{{ s.query }}">{{ s.name }}</a><span class="muted">{{ s.created_by.get_username|default:"—" }} · {{ s.created_at|date:"d.m.Y" }}</span>
+      {% if s.created_by_id == user.pk or user.is_staff %}<form method="post" action="{% url 'query_delete' s.pk %}">{% csrf_token %}<button class="btn danger sm" type="submit" aria-label="Удалить запрос «{{ s.name }}»">Удалить</button></form>{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</section>
+</div>
+<script src="{% static 'web/query.js' %}" defer></script>
+{% endblock %}

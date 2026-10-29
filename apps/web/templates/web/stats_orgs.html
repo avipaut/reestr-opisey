@@ -2,13 +2,14 @@
 {% block title %}Код × учреждение — Реестр описей{% endblock %}
 {% block content %}
 <h1>Код учёта × учреждение</h1>
-<p class="sub">Количество по коду учёта; у учреждения — сумма по нему и всем подведам. Щелчок по названию — его подведы.</p>
-<p class="measure"><b>Показано: количество, шт.</b> — сумма столбца «Количество» по позициям актуальных описей. Где в «Количестве» стояла сумма денег (равна цене или больше 1000), позиция считается за 1 шт.; исходное число — в карточке позиции. Меры (материалы и запасы: дробное количество, единица вместо названия) в свод не входят. Σ — сумма кодов, начинающихся с указанного.</p>
+<p class="sub">Позиции и количество по коду учёта; у учреждения — сумма по нему и всем подведам. Щелчок по названию — его подведы.</p>
+{% include "web/_counted.html" with extra="Σ — сумма кодов, начинающихся с указанного." %}
 
 <form class="filters" method="get">
   {% if parent %}<input type="hidden" name="parent" value="{{ parent.pk }}">{% endif %}
   <label>На дату<input type="date" name="date" value="{{ date }}"></label>
   {% include "web/_status_filter.html" %}
+  {% include "web/_flags.html" %}
   <button class="btn" type="submit">Показать</button>
   <button class="btn" type="submit" name="export" value="xlsx">Выгрузить в Excel</button>
 </form>
@@ -18,12 +19,15 @@
 
 <div class="card">
   {% if table %}
-  <div class="tbl-wrap"><table class="data pin1">
-    <thead><tr><th>{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}, шт.</th>{% endfor %}{% for c in codes %}<th class="n">{{ c|default:"—" }}, шт.</th>{% endfor %}<th class="n">Итого, шт.</th></tr></thead>
+  <div class="tbl-wrap"><table class="data pin1 pairs">
+    <thead>
+      <tr><th rowspan="2">{% if parent %}Подвед{% else %}Учреждение{% endif %}</th>{% for g in groups %}<th class="n grp pair-h" colspan="2" title="Сумма кодов, начинающихся с {{ g.prefixes }}">Σ {{ g.name }}</th>{% endfor %}{% for c in codes %}<th class="n pair-h" colspan="2">{{ c|default:"—" }}</th>{% endfor %}<th class="n pair-h" colspan="2">Итого</th></tr>
+      <tr class="sub-h">{% for g in groups %}<th class="n grp pair-a">Позиций</th><th class="n grp">Шт.</th>{% endfor %}{% for c in codes %}<th class="n pair-a">Позиций</th><th class="n">Шт.</th>{% endfor %}<th class="n pair-a">Позиций</th><th class="n">Шт.</th></tr>
+    </thead>
     <tbody>{% for t in table %}<tr>
       <td>{% if t.drill %}<a href="?parent={{ t.node.pk }}&{{ keep }}">{{ t.node.label }}</a>{% else %}{{ t.node.label }}{% endif %}</td>
-      {% for v in t.gvals %}<td class="n grp {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}{% for v in t.vals %}<td class="n {% if not v %}muted{% endif %}">{{ v|num }}</td>{% endfor %}<td class="n"><b>{{ t.total|num }}</b></td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td>Итого</td>{% for v in gtotals %}<td class="n grp">{{ v|num }}</td>{% endfor %}{% for v in totals %}<td class="n">{{ v|num }}</td>{% endfor %}<td class="n">{{ grand|num }}</td></tr></tfoot>
+      {% for v in t.gvals %}<td class="n grp pair-a {% if not v.0 %}muted{% endif %}">{{ v.0|num }}</td><td class="n grp {% if not v.1 %}muted{% endif %}">{{ v.1|num }}</td>{% endfor %}{% for v in t.vals %}<td class="n pair-a {% if not v.0 %}muted{% endif %}">{{ v.0|num }}</td><td class="n {% if not v.1 %}muted{% endif %}">{{ v.1|num }}</td>{% endfor %}<td class="n pair-a"><b>{{ t.total.0|num }}</b></td><td class="n"><b>{{ t.total.1|num }}</b></td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td>Итого</td>{% for v in gtotals %}<td class="n grp pair-a">{{ v.0|num }}</td><td class="n grp">{{ v.1|num }}</td>{% endfor %}{% for v in totals %}<td class="n pair-a">{{ v.0|num }}</td><td class="n">{{ v.1|num }}</td>{% endfor %}<td class="n pair-a">{{ grand.0|num }}</td><td class="n">{{ grand.1|num }}</td></tr></tfoot>
   </table></div>
   {% else %}
   <div class="empty"><b>На эту дату данных нет</b>Здесь появятся учреждения с принятыми описями.</div>

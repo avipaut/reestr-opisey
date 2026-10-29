@@ -1,9 +1,10 @@
 {% load num %}
-{% if tot %}<div class="tiles">
+{% if tot %}{% include "web/_counted.html" %}<div class="tiles">
   <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
   <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
   <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.cost|num:2 }}</div></div>
   <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ tot.bal|num:2 }}</div></div>
+  <div class="tile" title="Позиции видов, которые флаги «Учитывать» оставили за счётом"><div class="k">Не учтено, позиций</div><div class="v">{{ tot.out|num }}</div></div>
 </div>{% endif %}
 <div class="card">
   {% if page.object_list %}
