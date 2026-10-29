@@ -69,8 +69,11 @@
     if (!x) return;
     const box = x.closest('.qb-cond');
     box.querySelectorAll('input, select').forEach((el) => {
-      if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+      if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else if (el.type === 'checkbox') el.checked = false;
+      else el.value = '';
     });
+    box.querySelectorAll('select.qb-op').forEach((el) => el.classList.remove('is-not'));
     box.hidden = true;
     syncCondMenu();
     addCond.focus();
@@ -83,8 +86,11 @@
     form.querySelectorAll('.qb-cond input, .qb-cond select').forEach((el) => { if (!el.value) el.disabled = true; });
     // Условие без значения — без операции: «исключает» пустого не уходит в адрес.
     form.querySelectorAll('.qb-cond').forEach((box) => {
-      const vals = [...box.querySelectorAll('input, select')].filter((el) => !el.classList.contains('qb-op') && el.type !== 'hidden' || el.closest('.np'));
-      if (!vals.some((el) => el.value && !el.disabled)) box.querySelectorAll('select.qb-op').forEach((el) => { el.disabled = true; });
+      const vals = [...box.querySelectorAll('input, select')].filter((el) => !el.classList.contains('qb-op')
+        && !el.hasAttribute('data-qb-filter') && (el.type !== 'hidden' || el.closest('.np')));
+      const has = vals.some((el) => !el.disabled && (el.type === 'checkbox' ? el.checked : el.value));
+      if (!has) box.querySelectorAll('select.qb-op').forEach((el) => { el.disabled = true; });
+      box.querySelectorAll('[data-qb-filter]').forEach((el) => { el.disabled = true; });
     });
     const m = [...form.querySelectorAll('input[name=m]')];
     if (m.every((el) => el.checked)) m.forEach((el) => { el.disabled = true; });
@@ -105,6 +111,13 @@
       window.open(tr.dataset.href, 'qb-row');
     });
   });
+  // Поиск по списку типов: строки, где нет набранного, прячутся (отмеченные — всегда видны).
+  form.querySelectorAll('[data-qb-filter]').forEach((inp) => inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    inp.parentElement.querySelectorAll('.qb-check-list label').forEach((l) => {
+      l.hidden = !!q && !l.textContent.toLowerCase().includes(q) && !l.querySelector('input').checked;
+    });
+  }));
   form.querySelectorAll('select.qb-op').forEach((el) => el.addEventListener('change', () => {
     el.classList.toggle('is-not', el.value === 'not');
   }));

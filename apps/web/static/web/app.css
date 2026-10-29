@@ -441,7 +441,17 @@ table.data.pairs tr.sub-h th { top: 34px; height: 30px; font-size: 12px; font-we
 /* Операция условия: «равно / исключает», приоритет — сравнение и число (29.10.2026). */
 .qb-opline { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
 .qb-opline select.qb-op { width: auto; min-width: 104px; }
-.qb-opline select.qb-op.is-not { color: var(--bad); border-color: #e6b8b4; background: var(--bad-soft); }
+.qb select.qb-op.is-not { color: var(--bad); border-color: #e6b8b4; background: var(--bad-soft); }
 .qb-cond input[type=number] { width: 100%; height: 36px; }
 .qr-meta { margin-top: 2px; font-size: 12px; color: var(--ink-2); }
 .qb-big .nw { white-space: nowrap; }
+/* Условие со списком значений: операция сверху, значения — чипами или списком с поиском. */
+.qb-multi { display: flex; flex-direction: column; gap: 8px; }
+.qb-cond .qb-multi select.qb-op { align-self: flex-start; width: auto; min-width: 140px; }
+.qb-check { border: 1px solid var(--line-2); border-radius: 8px; background: #fff; }
+.qb-check-q { width: 100%; height: 34px; border: 0; border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; padding: 0 10px; }
+.qb-check-list { max-height: 196px; overflow: auto; padding: 4px 0; }
+.qb-check-list label { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 2px 10px; font-size: 13px; color: var(--ink); cursor: pointer; }
+.qb-check-list label:hover { background: var(--bg); }
+.qb-check-list label[hidden] { display: none; }
+

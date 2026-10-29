@@ -23,9 +23,12 @@ from apps.orgs.models import Node
 from apps.stats.flags import FLAGS
 from apps.stats.models import SavedQuery
 
-from apps.imports.reader import inv_key, norm
+import re
 
-from .filters import ItemFilter, choices
+from apps.imports.reader import inv_key, norm
+from apps.inventories.models import ObjectType, Status
+
+from .filters import SHEETS, ItemFilter, choices
 from .xlsx import items_xlsx_response, xlsx_response
 
 def _part(n):
@@ -82,55 +85,105 @@ NONE = "~"  # значение разреза «пусто» в адресе с�
 
 
 # Операции условий (пользователь 29.10.2026: «добавь возможность запросов с условиями по типу
-# Исключает»; «Приоритет задаем числом. Для поиска по условиям»): у условия — «равно» или
-# «исключает» (?op_status=not), приоритет — числом со сравнением (?op_priority=le).
-NEGATABLE = {"q", "node", "code", "status", "otype", "sheet", "year"}
-PRIO_OPS = {"eq": "=", "ne": "≠", "le": "≤", "ge": "≥"}
-# условие → параметры, которые ItemFilter применил бы как «равно»
-_POSITIVE = {"q": ["q"], "node": ["node"], "status": ["status"], "otype": ["otype"], "sheet": ["sheet"]}
-_LABEL = {"q": "Текст", "node": "Учреждение (с подведами)", "status": "Статус", "otype": "Тип объекта", "sheet": "Лист"}
+# Исключает»; «Приоритет задаем числом. Для поиска по условиям»; «почему на приоритет только 1
+# условие возможно? Я сейчас хотел указать запрет ряда значений»): у условия — «любое из» или
+# «кроме» (?op_status=not), значений — сколько угодно (?status=1&status=4); приоритет — числом:
+# список и диапазоны «1, 3, 5», «2-4», сравнение ≤ / ≥ — с одним числом.
+NEGATABLE = {"q", "node", "code", "status", "otype", "sheet", "year", "priority"}
+PRIO_OPS = {"eq": "один из", "not": "кроме", "le": "≤", "ge": "≥"}
+# Эти условия ItemFilter не применяет — их значений может быть несколько.
+_MULTI = ("status", "otype", "sheet", "year", "priority")
+
+
+def parse_numbers(text):
+    """«1, 3, 5», «2-4», «2–4 5» → [1, 2, 3, 4, 5]; не числа пропускаются."""
+    out = set()
+    for a, b in re.findall(r"(\d+)\s*(?:[-–—]\s*(\d+))?", text or ""):
+        lo, hi = int(a), int(b or a)
+        if lo > hi:
+            lo, hi = hi, lo
+        if hi - lo <= 1000:
+            out.update(range(lo, hi + 1))
+    return sorted(out)
+
+
+def _ints(values):
+    return [int(v) for v in values if str(v).strip().isdigit()]
 
 
 def base_query(request):
-    """Позиции запроса конструктора без флагов (f.flags — что из них учитывать). f — отбор для
-    показа (все значения условий), позиции отбираются с учётом «исключает» и приоритета."""
+    """Позиции запроса конструктора без флагов (f.flags — что из них учитывать). f — отбор
+    текста, учреждения, стоимости, даты и флагов; статус, тип, лист, год и приоритет —
+    списками (f.picks) с «любое из / кроме»."""
     G = request.GET
-    f = ItemFilter(request)
     neg = {k for k in NEGATABLE if G.get(f"op_{k}") == "not"}
     g = G.copy()
-    for k in neg & _POSITIVE.keys():
-        for x in _POSITIVE[k]:
-            g.pop(x, None)
-    g.pop("priority", None)
-    qs = ItemFilter(SimpleNamespace(GET=g)).all_qs
+    for k in _MULTI:
+        g.pop(k, None)
+    f = ItemFilter(SimpleNamespace(GET=g))
+    g2 = g.copy()
+    for k in ("q", "node"):
+        if k in neg:
+            g2.pop(k, None)
+    qs = ItemFilter(SimpleNamespace(GET=g2)).all_qs
     if "q" in neg and f.q:
         key = inv_key(f.q)
-        cond = Q(search__contains=norm(f.q)) | (Q(inv_key=key) if key else Q(pk__in=[]))
-        qs = qs.exclude(cond)
+        qs = qs.exclude(Q(search__contains=norm(f.q)) | (Q(inv_key=key) if key else Q(pk__in=[])))
     if "node" in neg and f.node:
         qs = qs.exclude(inventory__node__path__startswith=f.node.path)
-    if "status" in neg and f.status:
-        qs = qs.exclude(status=f.status)
-    if "otype" in neg and f.otype:
-        qs = qs.exclude(object_type=f.otype)
-    if "sheet" in neg and f.sheet:
-        qs = qs.exclude(sheet=f.sheet)
+
+    def apply(field, values, key):
+        nonlocal qs
+        if values:
+            qs = qs.exclude(**{f"{field}__in": values}) if key in neg else qs.filter(**{f"{field}__in": values})
+
+    statuses = list(Status.objects.filter(pk__in=_ints(G.getlist("status"))))
+    otypes = list(ObjectType.objects.filter(pk__in=_ints(G.getlist("otype"))).order_by("name"))
+    sheets = [v for v in G.getlist("sheet") if v in SHEETS]
+    years = sorted(set(_ints(G.getlist("year"))))
+    apply("status", statuses, "status")
+    apply("object_type", otypes, "otype")
+    apply("sheet", sheets, "sheet")
+    apply("inventory__year", years, "year")
     prefix = (G.get("code_prefix") or "").strip()
     if prefix:
         qs = qs.exclude(recommended_code__startswith=prefix) if "code" in neg else qs.filter(recommended_code__startswith=prefix)
-    year = G.get("year") or ""
-    if year.isdigit():
-        qs = qs.exclude(inventory__year=int(year)) if "year" in neg else qs.filter(inventory__year=int(year))
-    prio = (G.get("priority") or "").strip()
+    prio_text = (G.get("priority") or "").strip()
+    nums = parse_numbers(prio_text)
     op = G.get("op_priority") if G.get("op_priority") in PRIO_OPS else "eq"
     f.prio = None
-    if prio.lstrip("-").isdigit():
-        n = int(prio)
-        qs = {"eq": lambda: qs.filter(priority=n), "ne": lambda: qs.exclude(priority=n),
-              "le": lambda: qs.filter(priority__lte=n), "ge": lambda: qs.filter(priority__gte=n)}[op]()
-        f.prio = (op, n)
+    if nums:
+        if op == "le":
+            qs = qs.filter(priority__lte=max(nums))
+        elif op == "ge":
+            qs = qs.filter(priority__gte=min(nums))
+        else:
+            qs = qs.exclude(priority__in=nums) if op == "not" else qs.filter(priority__in=nums)
+        f.prio = (op, nums)
     f.neg = neg
-    return f, qs, prefix, year
+    f.picks = {"status": statuses, "otype": otypes, "sheet": sheets, "year": years}
+    return f, qs, prefix, ", ".join(map(str, years))
+
+
+def _nums_text(nums):
+    """[1, 2, 3, 5] → «1–3, 5»."""
+    out, run = [], []
+    for n in nums + [None]:
+        if run and (n is None or n != run[-1] + 1):
+            out.append(f"{run[0]}–{run[-1]}" if len(run) > 2 else ", ".join(map(str, run)))
+            run = []
+        if n is not None:
+            run.append(n)
+    return ", ".join(out)
+
+
+def _prio_text(f):
+    op, nums = f.prio
+    if op == "le":
+        return f"приоритет ≤ {max(nums)}"
+    if op == "ge":
+        return f"приоритет ≥ {min(nums)}"
+    return ("приоритет кроме " if op == "not" else "приоритет ") + _nums_text(nums)
 
 
 def row_filter(qs, request):
@@ -207,44 +260,48 @@ def _measures(request):
     return [(k, label) for k, label in MEASURES if not picked or k in picked]
 
 
+def _picked_texts(f):
+    """[(ключ, подпись поля, значения текстом)] выбранных списков."""
+    pk = getattr(f, "picks", {})
+    out = []
+    for key, label, vals in (("status", "Статус", [x.name for x in pk.get("status", [])]),
+                             ("otype", "Тип объекта", [x.name for x in pk.get("otype", [])]),
+                             ("sheet", "Лист", pk.get("sheet", [])),
+                             ("year", "Год описи", [str(y) for y in pk.get("year", [])])):
+        if vals:
+            out.append((key, label, ", ".join(vals)))
+    return out
+
+
 def _params(request, f, groups, prefix, year):
     neg = getattr(f, "neg", set())
-    negl = {_LABEL[k] for k in neg if k in _LABEL}
-    own = [(f"{label} — исключает" if label in negl else label, v) for label, v in f.params() if label != "Приоритет"]
+    labels = {"q": "Текст", "node": "Учреждение (с подведами)"}
+    negl = {labels[k] for k in neg if k in labels}
+    own = [(f"{label} — исключает" if label in negl else label, v) for label, v in f.params()]
     p = [("Вид", "Конструктор запросов"), ("Разрезы", " › ".join(DIMS[g][0] for g in groups) or "без разрезов"), *own]
+    for key, label, text in _picked_texts(f):
+        p.append((f"{label} — " + ("кроме" if key in neg else "любое из"), text))
     if prefix:
         p.append(("Рекомендуемый код " + ("не начинается с" if "code" in neg else "начинается с"), prefix))
-    if year:
-        p.append(("Год описи" + (" — исключает" if "year" in neg else ""), year))
     if getattr(f, "prio", None):
-        p.append(("Приоритет", f"{PRIO_OPS[f.prio[0]]} {f.prio[1]}"))
+        p.append(("Приоритет", _prio_text(f)))
     return p + [("Кто выгрузил", request.user.get_username()), ("Когда", timezone.localtime().strftime("%d.%m.%Y %H:%M"))]
 
 
 def _conditions_text(f, prefix, year):
-    """Условия словами для шапки результата; «исключает» — «кроме …»."""
+    """Условия словами для шапки результата; «кроме» — у исключающих."""
     neg = getattr(f, "neg", set())
-
-    def say(key, text):
-        out.append(f"кроме: {text}" if key in neg else text)
-
     out = []
     if f.q:
         out.append(f"без «{f.q}»" if "q" in neg else f"текст «{f.q}»")
     if f.node:
-        say("node", f.node.trail)
+        out.append(f"кроме: {f.node.trail}" if "node" in neg else f.node.trail)
     if prefix:
-        say("code", f"код {prefix}…")
-    if f.status:
-        say("status", f.status.name)
+        out.append(f"код не {prefix}…" if "code" in neg else f"код {prefix}…")
+    for key, label, text in _picked_texts(f):
+        out.append(f"{label.lower()} кроме: {text}" if key in neg else f"{label.lower()}: {text}")
     if getattr(f, "prio", None):
-        out.append(f"приоритет {PRIO_OPS[f.prio[0]]} {f.prio[1]}")
-    if f.otype:
-        say("otype", f.otype.name)
-    if f.sheet:
-        say("sheet", f"лист «{f.sheet}»")
-    if year:
-        say("year", f"опись {year} года")
+        out.append(_prio_text(f))
     if f.cost_min is not None or f.cost_max is not None:
         lo = f"от {f.cost_min:,.0f}".replace(",", " ") if f.cost_min is not None else ""
         hi = f"до {f.cost_max:,.0f}".replace(",", " ") if f.cost_max is not None else ""
@@ -265,6 +322,8 @@ def query_page(request):
            "presets": PRESETS, "conds": CONDS, "active": active, "prio_ops": PRIO_OPS,
            "neg": {k for k in NEGATABLE if g.get(f"op_{k}") == "not"}, "op_priority": g.get("op_priority") or "eq",
            "prio_value": (g.get("priority") or "").strip(),
+           "sel": {"status": set(_ints(g.getlist("status"))), "otype": set(_ints(g.getlist("otype"))),
+                   "sheet": set(g.getlist("sheet")), "year": set(_ints(g.getlist("year")))},
            "years": sorted({y for y in Inventory.objects.filter(is_current=True).exclude(year__isnull=True)
                             .values_list("year", flat=True)}, reverse=True), "nav": "query", **choices()}
     if not asked:

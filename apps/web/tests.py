@@ -800,10 +800,20 @@ class FlagsAndQueryTests(TransactionTestCase):
         r = self.client.get(reverse("query"), {"g1": "status", "status": st.pk, "op_status": "not"})
         self.assertEqual(r.context["total"]["rows"], all_rows - only)
         self.assertNotIn("Резерв", [t["dims"][0] for t in r.context["table"]])
-        self.assertIn("кроме: Резерв", r.context["cond_text"])
+        self.assertIn("статус кроме: Резерв", r.context["cond_text"])
         counted = Item.objects.filter(excluded=False)
-        for op, want in (("le", counted.filter(priority__lte=3)), ("ge", counted.filter(priority__gte=4)),
-                         ("ne", counted.exclude(priority=4)), ("", counted.filter(priority=4))):
-            q = {"g1": "priority", "priority": "3" if op in ("le",) else "4", "op_priority": op}
-            self.assertEqual(self.client.get(reverse("query"), q).context["total"]["rows"], want.count(), op or "eq")
+        for op, text, want in (("le", "3", counted.filter(priority__lte=3)), ("ge", "4", counted.filter(priority__gte=4)),
+                               ("not", "4", counted.exclude(priority=4)), ("", "4", counted.filter(priority=4)),
+                               # ряд значений (пользователь 29.10.2026: «хотел указать запрет ряда значений»)
+                               ("not", "1, 3-4", counted.exclude(priority__in=[1, 3, 4])),
+                               ("", "2–3,5", counted.filter(priority__in=[2, 3, 5]))):
+            q = {"g1": "priority", "priority": text, "op_priority": op}
+            self.assertEqual(self.client.get(reverse("query"), q).context["total"]["rows"], want.count(), f"{op} {text}")
+        # Несколько статусов: «любое из» и «кроме».
+        sts = list(Status.objects.filter(name__in=["Резерв", "Основной список"]))
+        two = self.client.get(reverse("query"), {"g1": "status", "status": [x.pk for x in sts]}).context
+        self.assertEqual(sorted(t["dims"][0] for t in two["table"]), ["Основной список", "Резерв"])
+        rest = self.client.get(reverse("query"), {"g1": "status", "status": [x.pk for x in sts], "op_status": "not"}).context
+        self.assertEqual(rest["total"]["rows"] + two["total"]["rows"], all_rows)
+        self.assertIn("статус кроме: Основной список, Резерв", rest["cond_text"])
 
