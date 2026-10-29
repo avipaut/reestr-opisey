@@ -791,3 +791,19 @@ class FlagsAndQueryTests(TransactionTestCase):
         x = self.client.get(reverse("query_row") + "?" + t["href"] + "&export=xlsx")
         self.assertEqual(openpyxl.load_workbook(io.BytesIO(x.content)).active.max_row - 1, t["rows"])
 
+    def test_query_exclude_and_priority_compare(self):
+        """Условия «исключает» и приоритет числом со сравнением (пользователь 29.10.2026)."""
+        from apps.inventories.models import Item, Status
+        st = Status.objects.get(name="Резерв")
+        all_rows = self.client.get(reverse("query"), {"g1": "status"}).context["total"]["rows"]
+        only = self.client.get(reverse("query"), {"g1": "status", "status": st.pk}).context["total"]["rows"]
+        r = self.client.get(reverse("query"), {"g1": "status", "status": st.pk, "op_status": "not"})
+        self.assertEqual(r.context["total"]["rows"], all_rows - only)
+        self.assertNotIn("Резерв", [t["dims"][0] for t in r.context["table"]])
+        self.assertIn("кроме: Резерв", r.context["cond_text"])
+        counted = Item.objects.filter(excluded=False)
+        for op, want in (("le", counted.filter(priority__lte=3)), ("ge", counted.filter(priority__gte=4)),
+                         ("ne", counted.exclude(priority=4)), ("", counted.filter(priority=4))):
+            q = {"g1": "priority", "priority": "3" if op in ("le",) else "4", "op_priority": op}
+            self.assertEqual(self.client.get(reverse("query"), q).context["total"]["rows"], want.count(), op or "eq")
+

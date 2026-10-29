@@ -19,11 +19,20 @@
 <div class="tiles">
   <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
   <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
-  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.ci|num:2 }}</div></div>
-  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ tot.cb|num:2 }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v" title="{{ tot.ci|num:2 }}">{{ tot.ci|num:0 }}</div></div>
+  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v" title="{{ tot.cb|num:2 }}">{{ tot.cb|num:0 }}</div></div>
   <div class="tile"><div class="k">Описей · узлов</div><div class="v">{{ tot.invs|num }} · {{ tot.nodes|num }}</div></div>
   <div class="tile" title="Позиции видов, которые флаги «Учитывать» оставили за счётом"><div class="k">Не учтено, позиций</div><div class="v">{{ tot.out|num }}</div></div>
 </div>
+
+{% if prio %}
+<div class="card qr-prio"><h2>Приоритеты <span class="muted">доля позиций строки</span></h2>
+  <div class="qr-prio-bar" role="img" aria-label="{% for p in prio %}{{ p.label }} — {{ p.share|num:1 }}%{% if not forloop.last %}, {% endif %}{% endfor %}">
+    {% for p in prio %}<i class="p-{{ p.key }}" style="width: {{ p.share|stringformat:'.3f' }}%" title="{{ p.label }}: {{ p.rows|num }} поз., {{ p.share|num:1 }}%"></i>{% endfor %}</div>
+  <div class="tbl-wrap"><table class="data"><thead><tr><th>Приоритет</th><th class="n">Позиций</th><th class="n">Доля, %</th><th class="n">Шт.</th><th class="n">Первонач., сом</th></tr></thead>
+    <tbody>{% for p in prio %}<tr><td><span class="qr-pdot p-{{ p.key }}"></span>{{ p.label }}</td><td class="n">{{ p.rows|num }}</td><td class="n muted">{{ p.share|num:1 }}</td><td class="n">{{ p.qty|num }}</td><td class="n">{{ p.ci|num:2 }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endif %}
 
 {% if parts %}
 <section class="qr-parts" aria-label="Из чего состоит">
@@ -39,14 +48,14 @@
 <div class="card"><h2>Где и откуда <span class="muted">описи, из которых сложилась строка{% if sources_more %} · первые {{ sources|length }} из {{ tot.invs|num }}{% endif %}</span></h2>
   {% if sources %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr><th>Учреждение</th><th>Опись и откуда загружена</th><th>Дата источника</th><th>Принята</th><th class="n">Позиций</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th class="n" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено</th></tr></thead>
+    <thead><tr><th>Учреждение</th><th class="qr-src-h">Опись и откуда загружена</th><th>Приоритеты</th><th class="n">Позиций</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th class="n" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено</th></tr></thead>
     <tbody>{% for x in sources %}<tr>
       <td class="wrap">{{ x.inv.node.trail|default:"узел не указан" }}</td>
       <td class="wrap"><a href="{% url 'inventory_detail' x.inv.pk %}" target="_blank" rel="noopener">{{ x.inv.source_file.name }}</a>
         {% if not x.inv.is_current %} <span class="tag">прежняя версия</span>{% endif %}{% if x.inv.outdated_by_id %} <span class="tag warn">устарела</span>{% endif %}
-        <div class="qr-path"><span class="muted" title="{{ x.inv.loaded_where }}">{{ x.inv.loaded_where }}</span><button type="button" class="btn sm" data-copy="{{ x.inv.loaded_where }}" aria-label="Скопировать путь к файлу">Копировать путь</button></div></td>
-      <td class="nw">{{ x.inv.source_date|date:"d.m.Y"|default:"—" }}</td>
-      <td class="nw muted">{{ x.inv.valid_from|date:"d.m.Y H:i"|default:"—" }}{% if x.inv.loaded_by %}<br>{{ x.inv.loaded_by.get_username }}{% endif %}</td>
+        <div class="qr-meta">источник {{ x.inv.source_date|date:"d.m.Y"|default:"без даты" }} · принята {{ x.inv.valid_from|date:"d.m.Y H:i"|default:"—" }}{% if x.inv.loaded_by %} · {{ x.inv.loaded_by.get_username }}{% endif %}</div>
+        <div class="qr-path"><span class="qr-path-t">{{ x.inv.loaded_where }}</span><button type="button" class="qr-copy" data-copy="{{ x.inv.loaded_where }}" title="Скопировать путь" aria-label="Скопировать путь к файлу"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M11 3.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button></div></td>
+      <td class="qr-pcell">{% for label, n, key in x.prio %}<span class="qr-pchip p-{{ key }}" title="{% if key == 'none' %}без приоритета{% else %}{{ label }}{% endif %}: {{ n|num }} поз.">{{ label }}<b>{{ n|num }}</b></span>{% empty %}—{% endfor %}</td>
       <td class="n">{{ x.rows|num }}</td><td class="n">{{ x.qty|num }}</td><td class="n">{{ x.ci|num:2 }}</td><td class="n muted">{{ x.out|num }}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<div class="empty"><b>Описей нет</b>По этой строке позиций не осталось — проверьте условия запроса.</div>{% endif %}
@@ -55,12 +64,12 @@
 <div class="card"><h2>Позиции <span class="muted">{{ page.paginator.count|num }}</span></h2>
   {% if page.object_list %}
   <div class="tbl-wrap"><table class="data">
-    <thead><tr>{% if tot.nodes > 1 %}<th>Учреждение</th>{% endif %}<th>Инв. №</th><th>Основное средство</th><th>Код</th><th>Статус</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th>Лист, строка</th></tr></thead>
+    <thead><tr>{% if tot.nodes > 1 %}<th>Учреждение</th>{% endif %}<th>Инв. №</th><th>Основное средство</th><th>Код</th><th>Статус</th><th class="n" title="Приоритет">П</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th>Лист, строка</th></tr></thead>
     <tbody>{% for it in page.object_list %}<tr>
       {% if tot.nodes > 1 %}<td class="wrap muted">{{ it.inventory.node.trail|default:"—" }}</td>{% endif %}
       <td class="nw mono">{{ it.inv_no|default:"—" }}</td>
       <td class="wrap"><a href="{% url 'item_detail' it.pk %}" target="_blank" rel="noopener">{{ it.name|default:"без наименования" }}</a>{% if it.model and it.model not in it.name %} <span class="muted">· {{ it.model }}</span>{% endif %}</td>
-      <td class="nw">{{ it.recommended_code|default:"—" }}</td><td>{{ it.status|default:"—" }}</td>
+      <td class="nw">{{ it.recommended_code|default:"—" }}</td><td>{{ it.status|default:"—" }}</td><td class="n">{% if it.priority is not None %}<span class="qr-pchip p-{{ it.priority }}">П{{ it.priority }}</span>{% else %}—{% endif %}</td>
       <td class="n">{{ it.qty|num }}</td><td class="n">{{ it.cost_initial|num:2 }}</td>
       <td class="nw"><a href="{% url 'inventory_detail' it.inventory_id %}" target="_blank" rel="noopener" title="Опись позиции">{{ it.sheet }}, {{ it.row_no }}</a></td></tr>{% endfor %}</tbody>
   </table></div>
@@ -69,10 +78,13 @@
 </div>
 </div>
 <script>
+// Копирование пути: значок, отметка «скопировано» — цветом и подсказкой, текст пути не меняется.
 document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Скопировано'; }
-  catch (e) { b.textContent = 'Не скопировано'; }
-  setTimeout(() => { b.textContent = 'Копировать путь'; }, 1600);
+  let ok = true;
+  try { await navigator.clipboard.writeText(b.dataset.copy); } catch (e) { ok = false; }
+  b.classList.add(ok ? 'is-ok' : 'is-bad');
+  b.title = ok ? 'Путь скопирован' : 'Не удалось скопировать';
+  setTimeout(() => { b.classList.remove('is-ok', 'is-bad'); b.title = 'Скопировать путь'; }, 1600);
 }));
 </script>
 {% endblock %}

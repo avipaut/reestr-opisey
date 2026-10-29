@@ -6,6 +6,8 @@
 как на остальных страницах. Величины — позиций, шт., стоимости и «не учтено».
 """
 
+from types import SimpleNamespace
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
@@ -20,6 +22,8 @@ from apps.inventories.models import Inventory
 from apps.orgs.models import Node
 from apps.stats.flags import FLAGS
 from apps.stats.models import SavedQuery
+
+from apps.imports.reader import inv_key, norm
 
 from .filters import ItemFilter, choices
 from .xlsx import items_xlsx_response, xlsx_response
@@ -77,16 +81,55 @@ def _labels(dim, values):
 NONE = "~"  # значение разреза «пусто» в адресе сводки строки
 
 
+# Операции условий (пользователь 29.10.2026: «добавь возможность запросов с условиями по типу
+# Исключает»; «Приоритет задаем числом. Для поиска по условиям»): у условия — «равно» или
+# «исключает» (?op_status=not), приоритет — числом со сравнением (?op_priority=le).
+NEGATABLE = {"q", "node", "code", "status", "otype", "sheet", "year"}
+PRIO_OPS = {"eq": "=", "ne": "≠", "le": "≤", "ge": "≥"}
+# условие → параметры, которые ItemFilter применил бы как «равно»
+_POSITIVE = {"q": ["q"], "node": ["node"], "status": ["status"], "otype": ["otype"], "sheet": ["sheet"]}
+_LABEL = {"q": "Текст", "node": "Учреждение (с подведами)", "status": "Статус", "otype": "Тип объекта", "sheet": "Лист"}
+
+
 def base_query(request):
-    """Позиции запроса конструктора без флагов (f.flags — что из них учитывать)."""
+    """Позиции запроса конструктора без флагов (f.flags — что из них учитывать). f — отбор для
+    показа (все значения условий), позиции отбираются с учётом «исключает» и приоритета."""
+    G = request.GET
     f = ItemFilter(request)
-    qs = f.all_qs
-    prefix = (request.GET.get("code_prefix") or "").strip()
+    neg = {k for k in NEGATABLE if G.get(f"op_{k}") == "not"}
+    g = G.copy()
+    for k in neg & _POSITIVE.keys():
+        for x in _POSITIVE[k]:
+            g.pop(x, None)
+    g.pop("priority", None)
+    qs = ItemFilter(SimpleNamespace(GET=g)).all_qs
+    if "q" in neg and f.q:
+        key = inv_key(f.q)
+        cond = Q(search__contains=norm(f.q)) | (Q(inv_key=key) if key else Q(pk__in=[]))
+        qs = qs.exclude(cond)
+    if "node" in neg and f.node:
+        qs = qs.exclude(inventory__node__path__startswith=f.node.path)
+    if "status" in neg and f.status:
+        qs = qs.exclude(status=f.status)
+    if "otype" in neg and f.otype:
+        qs = qs.exclude(object_type=f.otype)
+    if "sheet" in neg and f.sheet:
+        qs = qs.exclude(sheet=f.sheet)
+    prefix = (G.get("code_prefix") or "").strip()
     if prefix:
-        qs = qs.filter(recommended_code__startswith=prefix)
-    year = request.GET.get("year") or ""
+        qs = qs.exclude(recommended_code__startswith=prefix) if "code" in neg else qs.filter(recommended_code__startswith=prefix)
+    year = G.get("year") or ""
     if year.isdigit():
-        qs = qs.filter(inventory__year=int(year))
+        qs = qs.exclude(inventory__year=int(year)) if "year" in neg else qs.filter(inventory__year=int(year))
+    prio = (G.get("priority") or "").strip()
+    op = G.get("op_priority") if G.get("op_priority") in PRIO_OPS else "eq"
+    f.prio = None
+    if prio.lstrip("-").isdigit():
+        n = int(prio)
+        qs = {"eq": lambda: qs.filter(priority=n), "ne": lambda: qs.exclude(priority=n),
+              "le": lambda: qs.filter(priority__lte=n), "ge": lambda: qs.filter(priority__gte=n)}[op]()
+        f.prio = (op, n)
+    f.neg = neg
     return f, qs, prefix, year
 
 
@@ -153,7 +196,7 @@ PRESETS = [
 ]
 # Условия: ключ → (подпись, параметры адреса). Все условия выполняются вместе («и»).
 CONDS = [("q", "Наименование, инв. номер или модель", ["q"]), ("node", "Учреждение (с подведами)", ["node"]),
-         ("code", "Рекомендуемый код начинается с", ["code_prefix"]), ("status", "Статус", ["status"]),
+         ("code", "Рекомендуемый код", ["code_prefix"]), ("status", "Статус", ["status"]),
          ("priority", "Приоритет", ["priority"]), ("otype", "Тип объекта", ["otype"]), ("sheet", "Лист", ["sheet"]),
          ("year", "Год описи", ["year"]), ("cost", "Первонач. стоимость", ["cost_min", "cost_max"]),
          ("date", "На дату", ["date"])]
@@ -165,34 +208,43 @@ def _measures(request):
 
 
 def _params(request, f, groups, prefix, year):
-    p = [("Вид", "Конструктор запросов"), ("Разрезы", " › ".join(DIMS[g][0] for g in groups) or "без разрезов"),
-         *f.params()]
+    neg = getattr(f, "neg", set())
+    negl = {_LABEL[k] for k in neg if k in _LABEL}
+    own = [(f"{label} — исключает" if label in negl else label, v) for label, v in f.params() if label != "Приоритет"]
+    p = [("Вид", "Конструктор запросов"), ("Разрезы", " › ".join(DIMS[g][0] for g in groups) or "без разрезов"), *own]
     if prefix:
-        p.append(("Рекомендуемый код начинается с", prefix))
+        p.append(("Рекомендуемый код " + ("не начинается с" if "code" in neg else "начинается с"), prefix))
     if year:
-        p.append(("Год описи", year))
+        p.append(("Год описи" + (" — исключает" if "year" in neg else ""), year))
+    if getattr(f, "prio", None):
+        p.append(("Приоритет", f"{PRIO_OPS[f.prio[0]]} {f.prio[1]}"))
     return p + [("Кто выгрузил", request.user.get_username()), ("Когда", timezone.localtime().strftime("%d.%m.%Y %H:%M"))]
 
 
 def _conditions_text(f, prefix, year):
-    """Условия словами для шапки результата."""
+    """Условия словами для шапки результата; «исключает» — «кроме …»."""
+    neg = getattr(f, "neg", set())
+
+    def say(key, text):
+        out.append(f"кроме: {text}" if key in neg else text)
+
     out = []
     if f.q:
-        out.append(f"текст «{f.q}»")
+        out.append(f"без «{f.q}»" if "q" in neg else f"текст «{f.q}»")
     if f.node:
-        out.append(f.node.trail)
+        say("node", f.node.trail)
     if prefix:
-        out.append(f"код {prefix}…")
+        say("code", f"код {prefix}…")
     if f.status:
-        out.append(f.status.name)
-    if f.priority:
-        out.append(f"приоритет {f.priority}")
+        say("status", f.status.name)
+    if getattr(f, "prio", None):
+        out.append(f"приоритет {PRIO_OPS[f.prio[0]]} {f.prio[1]}")
     if f.otype:
-        out.append(f.otype.name)
+        say("otype", f.otype.name)
     if f.sheet:
-        out.append(f"лист «{f.sheet}»")
+        say("sheet", f"лист «{f.sheet}»")
     if year:
-        out.append(f"опись {year} года")
+        say("year", f"опись {year} года")
     if f.cost_min is not None or f.cost_max is not None:
         lo = f"от {f.cost_min:,.0f}".replace(",", " ") if f.cost_min is not None else ""
         hi = f"до {f.cost_max:,.0f}".replace(",", " ") if f.cost_max is not None else ""
@@ -210,7 +262,9 @@ def query_page(request):
     g = request.GET
     active = {k for k, _, keys in CONDS if any((g.get(x) or "").strip() for x in keys)}
     ctx = {"dims": [(k, v[0]) for k, v in DIMS.items()], "all_measures": MEASURES, "saved": SavedQuery.objects.all(),
-           "presets": PRESETS, "conds": CONDS, "active": active,
+           "presets": PRESETS, "conds": CONDS, "active": active, "prio_ops": PRIO_OPS,
+           "neg": {k for k in NEGATABLE if g.get(f"op_{k}") == "not"}, "op_priority": g.get("op_priority") or "eq",
+           "prio_value": (g.get("priority") or "").strip(),
            "years": sorted({y for y in Inventory.objects.filter(is_current=True).exclude(year__isnull=True)
                             .values_list("year", flat=True)}, reverse=True), "nav": "query", **choices()}
     if not asked:
@@ -276,6 +330,15 @@ def query_delete(request, pk):
     return redirect("query")
 
 
+def _prio(v):
+    """Приоритет подписью: «П1»; пусто — «без приоритета»."""
+    return f"П{v}" if v is not None else "без приоритета"
+
+
+def _pkey(v):
+    return str(v) if v is not None else "none"
+
+
 def _dim_title(g, v):
     """Значение разреза словами для заголовка сводки."""
     if v == NONE:
@@ -317,6 +380,15 @@ def query_row(request):
             return list(counted.values(k=F(field)).annotate(rows=Count("id"), qty=Sum("qty"), ci=Sum("cost_initial"))
                         .order_by("-rows")[:n])
 
+        # Приоритеты (пользователь 29.10.2026: «добавь в отображение приоритеты. обязательно»):
+        # по строке целиком и по каждой её описи.
+        prio = list(counted.values("priority").annotate(rows=Count("id"), qty=Sum("qty"), ci=Sum("cost_initial"))
+                    .order_by("priority"))
+        prio_by_inv = {}
+        for r in counted.filter(inventory_id__in=[x["inventory_id"] for x in by_inv]).values(
+                "inventory_id", "priority").annotate(n=Count("id")).order_by("priority"):
+            short = f"П{r['priority']}" if r["priority"] is not None else "без П"
+            prio_by_inv.setdefault(r["inventory_id"], []).append((short, r["n"], _pkey(r["priority"])))
         # Состав строки — по полям, которыми она ещё не разрезана.
         used = {g for g, _ in picked}
         parts = [(t, part(fld)) for g, t, fld in (("status", "Статус", "status__name"),
@@ -325,7 +397,11 @@ def query_row(request):
     invs = Inventory.objects.select_related("node", "source_file", "loaded_by").defer(
         "summary_lines", "unknown_columns", "proposed_path").in_bulk([r["inventory_id"] for r in by_inv])
     Node.fill_trails(i.node for i in invs.values())
-    sources = [{"inv": invs[r["inventory_id"]], **r, "out": r["all"] - r["rows"]} for r in by_inv if r["inventory_id"] in invs]
+    sources = [{"inv": invs[r["inventory_id"]], **r, "out": r["all"] - r["rows"], "prio": prio_by_inv.get(r["inventory_id"], [])}
+               for r in by_inv if r["inventory_id"] in invs]
+    total_rows = tot["rows"] or 0
+    prio = [{"label": _prio(r["priority"]), "key": _pkey(r["priority"]), "rows": r["rows"], "qty": r["qty"], "ci": r["ci"],
+             "share": r["rows"] * 100 / total_rows if total_rows else 0} for r in prio]
     pager = Paginator(counted.select_related("inventory__node", "status", "object_type")
                       .order_by("inventory__node__path", "sheet", "row_no"), 50)
     pager.count = tot["rows"] or 0  # уже посчитано итогами — второй проход по позициям не нужен
@@ -343,5 +419,6 @@ def query_row(request):
     return render(request, "web/query_row.html", {
         "title": title, "picked": [(DIMS[g][0], _dim_title(g, v)) for g, v in picked], "tot": tot,
         "sources": sources, "sources_more": max(0, (tot["invs"] or 0) - len(sources)), "parts": parts, "page": page,
+        "prio": prio if "priority" not in {g for g, _ in picked} else [],
         "f": f, "flags": f.flags, "cond_text": _conditions_text(f, prefix, year), "here": q.urlencode(),
         "back": back.urlencode(), "with_all": with_all.urlencode(), "nav": "query"})

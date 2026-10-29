@@ -413,7 +413,35 @@ table.data.pairs tr.sub-h th { top: 34px; height: 30px; font-size: 12px; font-we
 .qr-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
 .qr-parts .card { margin: 0; }
 .qr .card { border-radius: 12px; }
-.qr-path { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-width: 0; }
-.qr-path span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; max-width: 460px; }
-.qr-path .btn { flex: none; }
+/* Путь — полностью, с переносом; копирование — значок у первой строки пути. */
+.qr-src-h { min-width: 320px; }
+.qr-path { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; margin-top: 4px; }
+.qr-path-t { font-size: 12px; line-height: 1.4; color: var(--ink-3); overflow-wrap: anywhere; padding-top: 3px; }
+.qr-copy { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent;
+  border-radius: 6px; background: transparent; color: var(--ink-3); cursor: pointer; }
+.qr-copy:hover { background: var(--accent-soft); color: var(--accent); }
+.qr-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.qr-copy.is-ok { color: var(--ok); background: var(--ok-soft); }
+.qr-copy.is-bad { color: var(--bad); background: var(--bad-soft); }
 
+/* Приоритеты в сводке строки: полоса долей, чипы у описей и позиций. П1 — самый тёмный,
+   дальше светлее одного оттенка (последовательная шкала, не радуга); «без приоритета» — серый. */
+.qr-prio-bar { display: flex; height: 12px; margin: 14px 16px 6px; border-radius: 6px; overflow: hidden; background: var(--line); gap: 2px; }
+.qr-prio-bar i { display: block; min-width: 3px; }
+.p-0 { --p: #9fb3c8; } .p-1 { --p: #0f3f78; } .p-2 { --p: #1c5fae; } .p-3 { --p: #4f86c6; }
+.p-4 { --p: #86abd9; } .p-5 { --p: #b9cfea; } .p-none { --p: #c9d1da; }
+.qr-prio-bar i { background: var(--p, #c9d1da); }
+.qr-pdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--p, #c9d1da); }
+.qr-pcell { min-width: 150px; max-width: 210px; }
+.qr-pchip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; margin: 1px 3px 1px 0; border-radius: 999px;
+  font-size: 12px; background: color-mix(in srgb, var(--p, #c9d1da) 16%, #fff); color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--p, #c9d1da) 45%, #fff); font-variant-numeric: tabular-nums; }
+.qr-pchip b { font-weight: 600; }
+
+/* Операция условия: «равно / исключает», приоритет — сравнение и число (29.10.2026). */
+.qb-opline { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+.qb-opline select.qb-op { width: auto; min-width: 104px; }
+.qb-opline select.qb-op.is-not { color: var(--bad); border-color: #e6b8b4; background: var(--bad-soft); }
+.qb-cond input[type=number] { width: 100%; height: 36px; }
+.qr-meta { margin-top: 2px; font-size: 12px; color: var(--ink-2); }
+.qb-big .nw { white-space: nowrap; }

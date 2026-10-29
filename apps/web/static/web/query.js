@@ -81,6 +81,11 @@
   form.addEventListener('submit', () => {
     form.querySelectorAll('.qb-cond[hidden] input, .qb-cond[hidden] select').forEach((el) => { el.disabled = true; });
     form.querySelectorAll('.qb-cond input, .qb-cond select').forEach((el) => { if (!el.value) el.disabled = true; });
+    // Условие без значения — без операции: «исключает» пустого не уходит в адрес.
+    form.querySelectorAll('.qb-cond').forEach((box) => {
+      const vals = [...box.querySelectorAll('input, select')].filter((el) => !el.classList.contains('qb-op') && el.type !== 'hidden' || el.closest('.np'));
+      if (!vals.some((el) => el.value && !el.disabled)) box.querySelectorAll('select.qb-op').forEach((el) => { el.disabled = true; });
+    });
     const m = [...form.querySelectorAll('input[name=m]')];
     if (m.every((el) => el.checked)) m.forEach((el) => { el.disabled = true; });
   });
@@ -100,6 +105,9 @@
       window.open(tr.dataset.href, 'qb-row');
     });
   });
+  form.querySelectorAll('select.qb-op').forEach((el) => el.addEventListener('change', () => {
+    el.classList.toggle('is-not', el.value === 'not');
+  }));
   form.addEventListener('input', changed);
   form.addEventListener('change', (e) => { if (e.target !== addGroup && e.target !== addCond) changed(); });
   syncCondMenu();
