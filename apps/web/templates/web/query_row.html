@@ -1,0 +1,78 @@
+{% extends "web/base.html" %}{% load num %}
+{% block title %}{{ title }} — Конструктор запросов{% endblock %}
+{% block content %}
+<div class="qr">
+<div class="crumbs"><a href="{% url 'query' %}?{{ back }}">Конструктор запросов</a><span class="sep">›</span><span>Сводка строки</span></div>
+
+<header class="qr-head card">
+  <div>
+    <h1>{{ title }}</h1>
+    <p class="qb-conds-text">{% for c in cond_text %}<span>{{ c }}</span>{% endfor %}</p>
+    <p class="qb-counted">{{ flags.summary }}. Позиций — строк описей; шт. — сумма столбца «Количество».</p>
+  </div>
+  <div class="qr-acts">
+    <a class="btn" href="?{{ here }}&export=xlsx">Позиции в Excel</a>
+    {% if tot.out %}<a class="btn" href="?{{ with_all }}" title="Повторы строк, устаревшие описи, меры и подозрительные — тоже в счёте">Показать с не учтёнными ({{ tot.out|num }})</a>{% endif %}
+  </div>
+</header>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Позиций</div><div class="v">{{ tot.rows|num }}</div></div>
+  <div class="tile"><div class="k">Количество, шт.</div><div class="v">{{ tot.qty|num }}</div></div>
+  <div class="tile"><div class="k">Первонач. стоимость, сом</div><div class="v">{{ tot.ci|num:2 }}</div></div>
+  <div class="tile"><div class="k">Балансовая стоимость, сом</div><div class="v">{{ tot.cb|num:2 }}</div></div>
+  <div class="tile"><div class="k">Описей · узлов</div><div class="v">{{ tot.invs|num }} · {{ tot.nodes|num }}</div></div>
+  <div class="tile" title="Позиции видов, которые флаги «Учитывать» оставили за счётом"><div class="k">Не учтено, позиций</div><div class="v">{{ tot.out|num }}</div></div>
+</div>
+
+{% if parts %}
+<section class="qr-parts" aria-label="Из чего состоит">
+  {% for t, rows in parts %}{% if rows %}
+  <div class="card"><h2>{{ t }} <span class="muted">крупнейшие</span></h2>
+    <div class="tbl-wrap"><table class="data"><thead><tr><th>{{ t }}</th><th class="n">Позиций</th><th class="n">Шт.</th><th class="n">Первонач., сом</th></tr></thead>
+    <tbody>{% for r in rows %}<tr><td class="wrap">{{ r.k|default:"—" }}</td><td class="n">{{ r.rows|num }}</td><td class="n">{{ r.qty|num }}</td><td class="n">{{ r.ci|num:2 }}</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  {% endif %}{% endfor %}
+</section>
+{% endif %}
+
+<div class="card"><h2>Где и откуда <span class="muted">описи, из которых сложилась строка{% if sources_more %} · первые {{ sources|length }} из {{ tot.invs|num }}{% endif %}</span></h2>
+  {% if sources %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr><th>Учреждение</th><th>Опись и откуда загружена</th><th>Дата источника</th><th>Принята</th><th class="n">Позиций</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th class="n" title="Позиции видов, которые флаги «Учитывать» оставили за счётом">Не учтено</th></tr></thead>
+    <tbody>{% for x in sources %}<tr>
+      <td class="wrap">{{ x.inv.node.trail|default:"узел не указан" }}</td>
+      <td class="wrap"><a href="{% url 'inventory_detail' x.inv.pk %}" target="_blank" rel="noopener">{{ x.inv.source_file.name }}</a>
+        {% if not x.inv.is_current %} <span class="tag">прежняя версия</span>{% endif %}{% if x.inv.outdated_by_id %} <span class="tag warn">устарела</span>{% endif %}
+        <div class="qr-path"><span class="muted" title="{{ x.inv.loaded_where }}">{{ x.inv.loaded_where }}</span><button type="button" class="btn sm" data-copy="{{ x.inv.loaded_where }}" aria-label="Скопировать путь к файлу">Копировать путь</button></div></td>
+      <td class="nw">{{ x.inv.source_date|date:"d.m.Y"|default:"—" }}</td>
+      <td class="nw muted">{{ x.inv.valid_from|date:"d.m.Y H:i"|default:"—" }}{% if x.inv.loaded_by %}<br>{{ x.inv.loaded_by.get_username }}{% endif %}</td>
+      <td class="n">{{ x.rows|num }}</td><td class="n">{{ x.qty|num }}</td><td class="n">{{ x.ci|num:2 }}</td><td class="n muted">{{ x.out|num }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty"><b>Описей нет</b>По этой строке позиций не осталось — проверьте условия запроса.</div>{% endif %}
+</div>
+
+<div class="card"><h2>Позиции <span class="muted">{{ page.paginator.count|num }}</span></h2>
+  {% if page.object_list %}
+  <div class="tbl-wrap"><table class="data">
+    <thead><tr>{% if tot.nodes > 1 %}<th>Учреждение</th>{% endif %}<th>Инв. №</th><th>Основное средство</th><th>Код</th><th>Статус</th><th class="n">Шт.</th><th class="n">Первонач., сом</th><th>Лист, строка</th></tr></thead>
+    <tbody>{% for it in page.object_list %}<tr>
+      {% if tot.nodes > 1 %}<td class="wrap muted">{{ it.inventory.node.trail|default:"—" }}</td>{% endif %}
+      <td class="nw mono">{{ it.inv_no|default:"—" }}</td>
+      <td class="wrap"><a href="{% url 'item_detail' it.pk %}" target="_blank" rel="noopener">{{ it.name|default:"без наименования" }}</a>{% if it.model and it.model not in it.name %} <span class="muted">· {{ it.model }}</span>{% endif %}</td>
+      <td class="nw">{{ it.recommended_code|default:"—" }}</td><td>{{ it.status|default:"—" }}</td>
+      <td class="n">{{ it.qty|num }}</td><td class="n">{{ it.cost_initial|num:2 }}</td>
+      <td class="nw"><a href="{% url 'inventory_detail' it.inventory_id %}" target="_blank" rel="noopener" title="Опись позиции">{{ it.sheet }}, {{ it.row_no }}</a></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% with qs=here %}{% include "web/_pager.html" %}{% endwith %}
+  {% else %}<div class="empty"><b>Позиций нет</b>{% if tot.out %}Все позиции строки — среди не учтённых: <a href="?{{ with_all }}">показать с ними</a>.{% endif %}</div>{% endif %}
+</div>
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Скопировано'; }
+  catch (e) { b.textContent = 'Не скопировано'; }
+  setTimeout(() => { b.textContent = 'Копировать путь'; }, 1600);
+}));
+</script>
+{% endblock %}

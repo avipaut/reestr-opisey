@@ -8,8 +8,9 @@
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db import connection, transaction
-from django.db.models import CharField, Count, F, Func, Sum, Value
+from django.db.models import CharField, Count, F, Func, Q, Sum, Value
 from django.db.models.functions import Concat
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -17,10 +18,11 @@ from django.views.decorators.http import require_POST
 
 from apps.inventories.models import Inventory
 from apps.orgs.models import Node
+from apps.stats.flags import FLAGS
 from apps.stats.models import SavedQuery
 
 from .filters import ItemFilter, choices
-from .xlsx import xlsx_response
+from .xlsx import items_xlsx_response, xlsx_response
 
 def _part(n):
     """n-я часть пути узла «/126/8/…» — код уровня дерева."""
@@ -72,9 +74,12 @@ def _labels(dim, values):
     return {}
 
 
-def run_query(request):
+NONE = "~"  # значение разреза «пусто» в адресе сводки строки
+
+
+def base_query(request):
+    """Позиции запроса конструктора без флагов (f.flags — что из них учитывать)."""
     f = ItemFilter(request)
-    groups = _groups(request)
     qs = f.all_qs
     prefix = (request.GET.get("code_prefix") or "").strip()
     if prefix:
@@ -82,6 +87,32 @@ def run_query(request):
     year = request.GET.get("year") or ""
     if year.isdigit():
         qs = qs.filter(inventory__year=int(year))
+    return f, qs, prefix, year
+
+
+def row_filter(qs, request):
+    """Позиции одной строки результата: значения разрезов из адреса (?d_status=Резерв),
+    тем же выражением, что и группировка, — числа сводки сходятся со строкой таблицы."""
+    picked = []
+    order = _groups(request) + [g for g in DIMS if g not in _groups(request)]  # в порядке разрезов запроса
+    for g in order:
+        expr = DIMS[g][1]
+        if f"d_{g}" not in request.GET:
+            continue
+        v = request.GET.get(f"d_{g}")
+        qs = qs.annotate(**{f"r_{g}": expr})
+        if v == NONE:
+            qs = qs.filter(Q(**{f"r_{g}__isnull": True}) | Q(**{f"r_{g}": ""})) if g not in ("priority", "year") \
+                else qs.filter(**{f"r_{g}__isnull": True})
+        else:
+            qs = qs.filter(**{f"r_{g}": int(v) if g in ("priority", "year") and v.lstrip("-").isdigit() else v})
+        picked.append((g, v))
+    return qs, picked
+
+
+def run_query(request):
+    f, qs, prefix, year = base_query(request)
+    groups = _groups(request)
     inc = f.flags.item_q()
     sums = dict(x_rows=Count("id", filter=inc), x_qty=Sum("qty", filter=inc), x_ci=Sum("cost_initial", filter=inc),
                 x_dep=Sum("depreciation", filter=inc), x_cb=Sum("cost_balance", filter=inc), x_all=Count("id"))
@@ -101,11 +132,12 @@ def run_query(request):
         vals["out"] = (r["x_all"] or 0) - vals["rows"]
         if not vals["rows"] and not vals["out"]:
             continue
-        dims = []
+        dims, raw = [], []
         for g in groups:
             v = r[f"d_{g}"]
             dims.append(labels.get(g, {}).get(v, v) if v not in (None, "") else "—")
-        table.append({"dims": dims, **vals})
+            raw.append((f"d_{g}", NONE if v in (None, "") else str(v)))
+        table.append({"dims": dims, "raw": raw, **vals})
     total = {k: sum(t[k] for t in table) for k, _ in MEASURES}
     return f, groups, table, total, prefix, year
 
@@ -196,6 +228,11 @@ def query_page(request):
         return xlsx_response("Запрос", heads, rows, tot, _params(request, f, groups, prefix, year))
     q = request.GET.copy()
     q.pop("export", None)
+    for t in table[:SHOW]:
+        rq = q.copy()
+        for k, v in t["raw"]:
+            rq[k] = v
+        t["href"] = rq.urlencode()
     # Повтор значения разреза в соседней строке не печатается — таблица читается группами.
     prev = [None] * len(groups)
     for t in table[:SHOW]:
@@ -237,3 +274,74 @@ def query_delete(request, pk):
         obj.delete()
         messages.success(request, f"Запрос «{obj.name}» удалён")
     return redirect("query")
+
+
+def _dim_title(g, v):
+    """Значение разреза словами для заголовка сводки."""
+    if v == NONE:
+        return "—"
+    if g in ("node", "org", "sub"):
+        return _labels(g, {v}).get(v, v)
+    return v
+
+
+@login_required
+def query_row(request):
+    """Сводка строки результата (пользователь 29.10.2026: «нажимать на результаты… и что бы в
+    отдельной странице/окне открывалась сводка что это такое, где и откуда. Ну и само собой
+    переход к источнику»): что — разрезы, условия, итоги и состав; где и откуда — описи
+    с узлом, файлом и путём; позиции — со ссылками на карточку и опись, выгрузка."""
+    f, qs, prefix, year = base_query(request)
+    qs, picked = row_filter(qs, request)
+    inc = f.flags.item_q()
+    counted = qs.filter(inc)
+    if request.GET.get("export") == "xlsx":
+        invs = list(Inventory.objects.filter(pk__in=counted.values("inventory_id")).select_related("node").only("id", "node"))
+        Node.fill_trails(i.node for i in invs)
+        heads = [(DIMS[g][0], _dim_title(g, v)) for g, v in picked]
+        return items_xlsx_response("Строка запроса", counted.select_related("status", "object_type").order_by(
+            "inventory__node__path", "sheet", "row_no"), heads + _params(request, f, [], prefix, year)[2:], request,
+            trails={i.pk: i.node.trail if i.node else "" for i in invs})
+    with transaction.atomic(), connection.cursor() as c:
+        c.execute("SET LOCAL statement_timeout = '180s'")
+        tot = qs.aggregate(rows=Count("id", filter=inc), qty=Sum("qty", filter=inc), ci=Sum("cost_initial", filter=inc),
+                           cb=Sum("cost_balance", filter=inc), all=Count("id"),
+                           invs=Count("inventory", distinct=True, filter=inc),
+                           nodes=Count("inventory__node", distinct=True, filter=inc))
+        tot["out"] = tot["all"] - (tot["rows"] or 0)
+        by_inv = list(qs.values("inventory_id").annotate(rows=Count("id", filter=inc), qty=Sum("qty", filter=inc),
+                                                         ci=Sum("cost_initial", filter=inc), all=Count("id"))
+                      .order_by("-rows", "-all")[:200])
+
+        def part(field, n=8):
+            return list(counted.values(k=F(field)).annotate(rows=Count("id"), qty=Sum("qty"), ci=Sum("cost_initial"))
+                        .order_by("-rows")[:n])
+
+        # Состав строки — по полям, которыми она ещё не разрезана.
+        used = {g for g, _ in picked}
+        parts = [(t, part(fld)) for g, t, fld in (("status", "Статус", "status__name"),
+                                                  ("code", "Рекомендуемый код", "recommended_code"),
+                                                  ("otype", "Тип объекта", "object_type__name")) if g not in used]
+    invs = Inventory.objects.select_related("node", "source_file", "loaded_by").defer(
+        "summary_lines", "unknown_columns", "proposed_path").in_bulk([r["inventory_id"] for r in by_inv])
+    Node.fill_trails(i.node for i in invs.values())
+    sources = [{"inv": invs[r["inventory_id"]], **r, "out": r["all"] - r["rows"]} for r in by_inv if r["inventory_id"] in invs]
+    pager = Paginator(counted.select_related("inventory__node", "status", "object_type")
+                      .order_by("inventory__node__path", "sheet", "row_no"), 50)
+    pager.count = tot["rows"] or 0  # уже посчитано итогами — второй проход по позициям не нужен
+    page = pager.get_page(request.GET.get("page"))
+    q = request.GET.copy()
+    for k in ("page", "export"):
+        q.pop(k, None)
+    back = q.copy()
+    for k in list(back):
+        if k.startswith("d_"):
+            back.pop(k)
+    with_all = q.copy()
+    with_all.setlist("inc", [k for k, _, _ in FLAGS])
+    title = " · ".join(f"{DIMS[g][0]}: {_dim_title(g, v)}" for g, v in picked) or "Все позиции выборки"
+    return render(request, "web/query_row.html", {
+        "title": title, "picked": [(DIMS[g][0], _dim_title(g, v)) for g, v in picked], "tot": tot,
+        "sources": sources, "sources_more": max(0, (tot["invs"] or 0) - len(sources)), "parts": parts, "page": page,
+        "f": f, "flags": f.flags, "cond_text": _conditions_text(f, prefix, year), "here": q.urlencode(),
+        "back": back.urlencode(), "with_all": with_all.urlencode(), "nav": "query"})

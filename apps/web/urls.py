@@ -13,6 +13,7 @@ urlpatterns = [
     path("stats/orgs/", views.stats_orgs, name="stats_orgs"),
     path("stats/nodes/", views.stats_nodes, name="stats_nodes"),
     path("query/", views_query.query_page, name="query"),
+    path("query/row/", views_query.query_row, name="query_row"),
     path("query/save/", views_query.query_save, name="query_save"),
     path("query/<int:pk>/delete/", views_query.query_delete, name="query_delete"),
     path("suspects/", views_suspect.suspect_list, name="suspects"),

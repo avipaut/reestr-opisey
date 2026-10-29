@@ -398,3 +398,22 @@ table.data.pairs tr.sub-h th { top: 34px; height: 30px; font-size: 12px; font-we
   .qb-head, .qb-sec, .qb-foot { padding-left: 16px; padding-right: 16px; }
   .qb-actions { flex: 1 1 auto; }
 }
+
+/* Строка конструктора — ссылка на сводку; сводка строки (29.10.2026). */
+.qb-table tr.qb-row { cursor: pointer; }
+.qb-table tr.qb-row:hover td { background: var(--accent-soft); }
+.qb-rlink { color: inherit; }
+.qb-table tr.qb-row:hover .qb-rlink { color: var(--accent); text-decoration: underline; }
+.qr { display: flex; flex-direction: column; gap: 16px; }
+.qr > .tiles { margin: 0; }
+.qr-head { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: space-between; align-items: start; padding: 18px 20px; border-radius: 12px; }
+.qr-head > div:first-child { flex: 1 1 420px; min-width: 0; }
+.qr-head h1 { margin: 0 0 8px; font-size: 20px; text-wrap: balance; }
+.qr-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.qr-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.qr-parts .card { margin: 0; }
+.qr .card { border-radius: 12px; }
+.qr-path { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-width: 0; }
+.qr-path span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; max-width: 460px; }
+.qr-path .btn { flex: none; }
+

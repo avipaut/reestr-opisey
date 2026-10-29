@@ -92,6 +92,14 @@
     addGroup.disabled = used.size >= 3;
     syncCondMenu();
   }
+  // Строка результата целиком — щелчок открывает её сводку в окне «qb-row» (одно окно на все
+  // сводки: следующая строка открывается в том же окне); выделение текста щелчком не считается.
+  document.querySelectorAll('tr.qb-row').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || String(window.getSelection())) return;
+      window.open(tr.dataset.href, 'qb-row');
+    });
+  });
   form.addEventListener('input', changed);
   form.addEventListener('change', (e) => { if (e.target !== addGroup && e.target !== addCond) changed(); });
   syncCondMenu();

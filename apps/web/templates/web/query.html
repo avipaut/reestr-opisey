@@ -66,7 +66,7 @@
     <div>
       <h2>{{ title }}</h2>
       <p class="qb-conds-text">{% for c in cond_text %}<span>{{ c }}</span>{% endfor %}</p>
-      <p class="qb-counted">{{ flags.summary }}. Позиций — строк описей; шт. — сумма столбца «Количество».</p>
+      <p class="qb-counted">{{ flags.summary }}. Позиций — строк описей; шт. — сумма столбца «Количество». Щелчок по строке — её сводка в отдельном окне.</p>
     </div>
     <form class="qb-save" method="post" action="{% url 'query_save' %}">{% csrf_token %}
       <input type="hidden" name="query" value="{{ here }}">
@@ -78,7 +78,7 @@
   {% if table %}
   <div class="tbl-wrap"><table class="data qb-table pin1">
     <thead><tr>{% for h in group_heads %}<th>{{ h }}</th>{% empty %}<th>Выборка</th>{% endfor %}{% for k, label in measures %}<th class="n" title="{% if k == 'out' %}Позиции видов, которые флаги «Учитывать» оставили за счётом{% else %}{{ label }}{% endif %}">{{ short|get:k }}</th>{% endfor %}</tr></thead>
-    <tbody>{% for t in table %}<tr{% if group_heads|length > 1 and t.show.0 and not forloop.first %} class="grp-start"{% endif %}>{% for d in t.show %}<td class="wrap">{{ d }}</td>{% empty %}<td>Все позиции</td>{% endfor %}
+    <tbody>{% for t in table %}<tr class="qb-row{% if group_heads|length > 1 and t.show.0 and not forloop.first %} grp-start{% endif %}" data-href="{% url 'query_row' %}?{{ t.href }}">{% for d in t.show %}<td class="wrap">{% if forloop.last %}<a class="qb-rlink" href="{% url 'query_row' %}?{{ t.href }}" target="qb-row" title="Сводка строки: что это, где и откуда — в отдельном окне">{{ t.dims|last }}</a>{% else %}{{ d }}{% endif %}</td>{% empty %}<td><a class="qb-rlink" href="{% url 'query_row' %}?{{ t.href }}" target="qb-row">Все позиции</a></td>{% endfor %}
       {% for k, label in measures %}<td class="n{% if k == 'out' %} muted{% endif %}">{% if k == "ci" or k == "dep" or k == "cb" %}{{ t|get:k|num:2 }}{% else %}{{ t|get:k|num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
     {% if group_heads %}<tfoot><tr><td colspan="{{ group_heads|length }}">Итого · строк {{ count|num }}</td>
       {% for k, label in measures %}<td class="n">{% if k == "ci" or k == "dep" or k == "cb" %}{{ total|get:k|num:2 }}{% else %}{{ total|get:k|num }}{% endif %}</td>{% endfor %}</tr></tfoot>{% endif %}

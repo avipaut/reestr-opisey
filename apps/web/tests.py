@@ -776,3 +776,18 @@ class FlagsAndQueryTests(TransactionTestCase):
         self.client.post(reverse("query_delete", args=[q.pk]))
         self.assertFalse(SavedQuery.objects.exists())
 
+    def test_row_summary_matches_row_and_links_sources(self):
+        """Сводка строки (пользователь 29.10.2026: «нажимать на результаты… сводка что это такое,
+        где и откуда… переход к источнику»): числа = строке таблицы, описи и позиции со ссылками."""
+        r = self.client.get(reverse("query"), {"g1": "status", "g2": "code"})
+        t = r.context["table"][0]
+        s = self.client.get(reverse("query_row") + "?" + t["href"])
+        self.assertEqual(s.status_code, 200)
+        self.assertEqual(s.context["tot"]["rows"], t["rows"])
+        self.assertEqual(s.context["title"], f"Статус: {t['dims'][0]} · Рекомендуемый код: {t['dims'][1]}")
+        inv = s.context["sources"][0]["inv"]
+        self.assertContains(s, reverse("inventory_detail", args=[inv.pk]))
+        self.assertContains(s, reverse("item_detail", args=[s.context["page"].object_list[0].pk]))
+        x = self.client.get(reverse("query_row") + "?" + t["href"] + "&export=xlsx")
+        self.assertEqual(openpyxl.load_workbook(io.BytesIO(x.content)).active.max_row - 1, t["rows"])
+
