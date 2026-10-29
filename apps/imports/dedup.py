@@ -22,6 +22,9 @@
    (2) наименование, стоимость, количество — только если у одной из строк нет инв.
    номера (разные номера — разные вещи). Одинаковых строк внутри описи остаётся
    столько, сколько их больше всего в одной описи группы.
+   Повтором становится только строка дороже DUP_MIN_COST (100 000 сом; решение
+   пользователя 29.10.2026 «Давай дубли чистить если у нас стоимость позиции выше
+   100000»): дешёвые строки в своде остаются, даже если повторяются.
 4. Разное количество или стоимость при том же инв. номере — разные позиции (ответа
    пользователя пока нет), строка помечается «сверить» (dup_check).
 5. Годы (решение пользователя 28.10.2026: «валидацию по описям. по годам. Надо брать
@@ -39,6 +42,7 @@
 import logging
 import re
 from collections import defaultdict
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -135,9 +139,10 @@ def _groups(probe, allk, link):
     return [g for g in out.values() if len(g) > 1]
 
 
-def _merge(members, rows_by_inv):
+def _merge(members, rows_by_inv, min_cost=None):
     """Объединить строки группы. Возвращает (повторы {строка: (пара, ступень)},
-    «сверить» {строка: cost|qty})."""
+    «сверить» {строка: cost|qty}). Повтором может быть только строка дороже min_cost."""
+    min_cost = Decimal(settings.DUP_MIN_COST if min_cost is None else min_cost)
     kept1, kept2, kept_inv = defaultdict(list), defaultdict(list), {}  # ключ → взятые строки
     kept_by_inv_key = defaultdict(set)  # инв. номер → (стоимость, количество) взятых строк
     dups, check = {}, {}
@@ -149,18 +154,22 @@ def _merge(members, rows_by_inv):
         for row in rows:
             k1, k2 = _keys(row)
             hit = None
+            if row[4] is None or row[4] <= min_cost:
+                # Дешёвая строка — не повтор: сразу в объединение.
+                pending.append((row, None, None, k1, k2))
+                continue
             if k1:
                 hit = next((x for x in kept1[k1] if x not in used), None)
             if hit:
                 used.add(hit)
                 dups[row[0]] = (hit, 1)
             else:
-                pending.append((row, k1, k2))
+                pending.append((row, k1, k2, k1, k2))
         # Ступень 2: наименование, стоимость, количество — если у одной из строк нет номера.
         fresh = []
-        for row, k1, k2 in pending:
+        for row, m1, m2, k1, k2 in pending:
             hit = None
-            if k2:
+            if m2:
                 hit = next((x for x in kept2[k2] if x not in used and not (row[2] and kept_inv[x])), None)
             if hit:
                 used.add(hit)

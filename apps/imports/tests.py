@@ -436,7 +436,9 @@ class RetireRootTests(TransactionTestCase):
             shutil.rmtree(new, ignore_errors=True)
 
 
-@override_settings(AUTO_ACCEPT=True)
+# Порог стоимости повтора (DUP_MIN_COST) — 0: строки тестовых описей дешёвые; сам порог —
+# DedupCostTests.
+@override_settings(AUTO_ACCEPT=True, DUP_MIN_COST="0")
 class DedupTests(TransactionTestCase):
     """Дубли описей (apps.imports.dedup): лист той же книги и пересохранённый вариант у
     одного учреждения считались дважды (Департамент дорожного хозяйства, 28.10.2026)."""
@@ -488,7 +490,7 @@ class DedupTests(TransactionTestCase):
         self.assertEqual(small.rows_dup, 5)
 
 
-@override_settings(AUTO_ACCEPT=True)
+@override_settings(AUTO_ACCEPT=True, DUP_MIN_COST="0")
 class DedupYearsTests(TransactionTestCase):
     """Годы описей в группе: опись старше самого нового года не в своде целиком
     («Кадамжай РайОО»: книги 2024 и 2025 годов, списанное к 2025-му оставалось в своде)."""
@@ -522,3 +524,28 @@ class DedupYearsTests(TransactionTestCase):
         self.assertEqual((old.cost_initial, new.cost_initial, new.rows_dup), (0, 30000, 0))
         self.assertEqual(sum(r["qty"] for r in stats.by_code(timezone.now())), 5)
         self.assertEqual(old.dup_group.base_id, new.pk)
+
+
+@override_settings(AUTO_ACCEPT=True)
+class DedupCostTests(TransactionTestCase):
+    """Повтор — только строка дороже 100 000 сом (решение пользователя 29.10.2026): дешёвая
+    строка, совпавшая с другой описью группы, остаётся в своде."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.folder = os.path.join(self.root, "126", "8. Тестовое ДНВТ")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_only_expensive_rows_are_duplicates(self):
+        rows = [row("Станок", "31123110", "Основной список", inv="50", cost=250000),
+                row("Компьютер", "31123130", "Основной список", inv="51", cost=100000),
+                row("Стул", "31123110", "Резерв", inv="52", cost=900)]
+        make_book(os.path.join(self.folder, "опись — ОС.xlsx"), BASE + rows)
+        make_book(os.path.join(self.folder, "опись — Sheet1.xlsx"), rows)
+        services.scan([self.root], workers=1)
+        small = Inventory.objects.get(source_file__name="опись — Sheet1.xlsx")
+        self.assertIsNotNone(small.dup_group_id)
+        dups = set(Item.objects.filter(inventory=small, dup_of__isnull=False).values_list("name", flat=True))
+        self.assertEqual(dups, {"Станок"}, "ровно 100 000 и дешевле — не повтор")
