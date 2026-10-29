@@ -39,3 +39,8 @@ waitress; сервер — Windows.
 `.dev/pgdata` (вне git), программы — `%LOCALAPPDATA%\semsearch\pgsql\bin`:
 
     pg_ctl -D .dev/pgdata -o "-p 5433 -c listen_addresses=localhost" -l .dev/pg.log start
+
+`manage.py runserver` поднимает её сам, если она не отвечает (DJANGO_ENV=dev,
+DB_HOST — localhost, есть `.dev/pgdata`), и ждёт готовности —
+`config/devdb.py`. pg_ctl — из PG_BIN в .env, PATH или папки выше. База
+остаётся работать и после остановки runserver.
